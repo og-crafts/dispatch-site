@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Code signing policy | Dispatch</title>
-<meta name="description" content="How Dispatch&#x27;s Windows releases are built and signed, and who approves them.">
+<meta name="description" content="How Dispatch&#x27;s installers are built, how to check a download, and who publishes releases.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F7F7F8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F0F10" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'none'">
@@ -11,9 +11,9 @@
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml"><link rel="icon" href="/assets/icon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/assets/icon-180.png">
 <link rel="preload" href="/assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website"><meta property="og:site_name" content="Dispatch"><meta property="og:title" content="Code signing policy | Dispatch">
-<meta property="og:description" content="How Dispatch&#x27;s Windows releases are built and signed, and who approves them."><meta property="og:url" content="https://dispatch.ogcrafts.cloud/code-signing/"><meta property="og:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
+<meta property="og:description" content="How Dispatch&#x27;s installers are built, how to check a download, and who publishes releases."><meta property="og:url" content="https://dispatch.ogcrafts.cloud/code-signing/"><meta property="og:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Dispatch by OGCrafts: an API client with no account and no cloud">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Code signing policy | Dispatch"><meta name="twitter:description" content="How Dispatch&#x27;s Windows releases are built and signed, and who approves them."><meta name="twitter:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Code signing policy | Dispatch"><meta name="twitter:description" content="How Dispatch&#x27;s installers are built, how to check a download, and who publishes releases."><meta name="twitter:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
 <script src="/assets/look.js"></script>
 <link rel="stylesheet" href="/assets/site.css">
 <script src="/assets/site.js" defer></script>
@@ -28,21 +28,23 @@
 <label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></fieldset>
 <p>The same looks as in the app (Settings, Themes). Kept in this browser only.</p></div></details></div></header>
 <main id="main">
-<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Code signing policy</p><h1>Code signing policy</h1><p class="updated">Last updated 2026-11-16.</p>
-<p>Free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>.</p>
-<p>Windows installers of Dispatch are signed so that Windows can check they come from this project and were not changed on the way. Signing starts with the first release after the project is accepted by SignPath Foundation; earlier releases are unsigned.</p>
-<h2>What is signed</h2>
-<ul><li>Only Dispatch itself: the Windows setup program and MSI package published on the <a href="https://github.com/og-crafts/dispatch/releases">GitHub releases page</a> and on the <a href="/download/">download page</a>.</li>
-<li>Every signed file is built by GitHub Actions on GitHub-hosted runners, directly from the source code in the public repository <a href="https://github.com/og-crafts/dispatch">og-crafts/dispatch</a>. SignPath checks that origin before it signs.</li>
-<li>Nothing built outside that workflow is signed, and no third-party program is signed with this certificate.</li></ul>
+<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Code signing policy</p><h1>Code signing policy</h1><p class="updated">Last updated 2026-11-22.</p>
+<p>The Windows and macOS installers of Dispatch are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn the first time you open Dispatch. The <a href="/download/#unsigned">download page</a> explains how to open it. This page says how the installers are made and how you can check that the file you have is the one we published.</p>
+<h2>How the installers are made</h2>
+<ul><li>Every installer is built by GitHub Actions on GitHub-hosted runners, directly from the source code in the public repository <a href="https://github.com/og-crafts/dispatch">og-crafts/dispatch</a>, when a version tag is pushed.</li>
+<li>The files are attached to the release on the <a href="https://github.com/og-crafts/dispatch/releases">GitHub releases page</a>. The <a href="/download/">download page</a> links to those same files.</li>
+<li>Nothing built outside that workflow is published as a Dispatch installer.</li></ul>
+<h2>How to check a download</h2>
+<ul><li>The download page lists a SHA-256 checksum for each installer. Compare it with <code>Get-FileHash file</code> in PowerShell, <code>shasum -a 256 file</code> on macOS or <code>sha256sum file</code> on Linux.</li>
+<li>Updates installed from inside the desktop app are checked against Dispatch&rsquo;s own update signing key before they install, so a changed update is refused.</li></ul>
 <h2>Team roles</h2>
 <ul><li>Committers and reviewers: <a href="https://github.com/orgs/og-crafts/people">members of the og-crafts organization</a>. Changes from anyone else arrive as pull requests and are reviewed by a member before they are merged.</li>
-<li>Approvers: <a href="https://github.com/orgs/og-crafts/people?query=role%3Aowner">owners of the og-crafts organization</a>. Every release is approved by hand in SignPath before it is signed.</li></ul>
-<p>Everyone in these roles uses multi-factor authentication for GitHub and SignPath.</p>
+<li>Releases: <a href="https://github.com/orgs/og-crafts/people?query=role%3Aowner">owners of the og-crafts organization</a> check and publish every release by hand.</li></ul>
+<p>Everyone in these roles uses multi-factor authentication for GitHub.</p>
 <h2>Privacy</h2>
 <p>This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. Requests go only to the addresses you send them to. Anonymous usage and error reports are sent only if you agree when Dispatch first starts (both unticked; changeable in Settings), and the update check runs only when you ask or turn it on. The <a href="/privacy/">privacy policy</a> has the details.</p>
 <h2>Report a problem</h2>
-<p>If you think a signed Dispatch file is harmful or was not built from this project&rsquo;s source, write to <a href="mailto:hello@ogcrafts.cloud">hello@ogcrafts.cloud</a>. You can also report it to SignPath at <a href="mailto:support@signpath.io">support@signpath.io</a>.</p></div></div>
+<p>If you think a Dispatch file is harmful or was not built from this project&rsquo;s source, write to <a href="mailto:hello@ogcrafts.cloud">hello@ogcrafts.cloud</a>.</p></div></div>
 </main>
 <footer class="site"><div class="wrap">
 <div><a class="brand" href="/"><img src="/assets/icon-32.png" width="32" height="32" alt="">Dispatch</a>
