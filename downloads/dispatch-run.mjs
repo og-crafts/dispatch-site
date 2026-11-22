@@ -153,7 +153,7 @@ var init_cdp = __esm({
 });
 
 // src/core/browser.ts
-async function runBrowserSteps(cfg, fill, launcher, signal) {
+async function runBrowserSteps(cfg, fill2, launcher, signal) {
   const out = { ok: false, error: null, steps: [], extracted: {}, cookies: [], logs: [], finalUrl: "" };
   const log = (level, text) => out.logs.push({ level, text, at: Date.now(), source: "browser" });
   let session = null;
@@ -176,7 +176,7 @@ async function runBrowserSteps(cfg, fill, launcher, signal) {
     for (const st of cfg.steps) {
       if (signal?.aborted) throw new CdpError("Stopped.");
       const t0 = Date.now();
-      const target = fill(st.target);
+      const target = fill2(st.target);
       let note = "";
       try {
         switch (st.kind) {
@@ -186,7 +186,7 @@ async function runBrowserSteps(cfg, fill, launcher, signal) {
             break;
           case "fill": {
             await until(target, () => exists(target));
-            const val = fill(st.value);
+            const val = fill2(st.value);
             await page.evaluate(`(() => { const el = document.querySelector(${js(target)}); el.focus();
               const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
               Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${js(val)});
@@ -215,7 +215,7 @@ async function runBrowserSteps(cfg, fill, launcher, signal) {
             note = target;
             break;
           case "wait":
-            await new Promise((r) => setTimeout(r, Math.min(6e4, Number(fill(st.value)) || 1e3)));
+            await new Promise((r) => setTimeout(r, Math.min(6e4, Number(fill2(st.value)) || 1e3)));
             note = `${st.value} ms`;
             break;
           case "extractCookie": {
@@ -381,16 +381,18 @@ function normalizeFolder(f) {
 function newEnvironment(name = "New environment") {
   return { id: uid(), name, variables: [], updatedAt: Date.now() };
 }
-var METHODS, DEFAULT_SPACE, defaultSettings, counter, kv, emptyAuth, emptyBody, emptyScripts, emptySettings, bySort;
+var METHODS, DEFAULT_SPACE, ASSISTANT_SPACE, defaultSettings, counter, kv, emptyAuth, emptyBody, emptyScripts, emptySettings, bySort;
 var init_types = __esm({
   "src/core/types.ts"() {
     "use strict";
     init_browser();
     METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
     DEFAULT_SPACE = { id: "default", name: "My workspace" };
+    ASSISTANT_SPACE = { id: "assistant", name: "AI assistant" };
     defaultSettings = {
       activeEnvId: null,
       theme: "system",
+      look: "dispatch",
       timeoutMs: 3e4,
       followRedirects: true,
       insecureTls: false,
@@ -400,7 +402,17 @@ var init_types = __esm({
       clientCerts: [],
       caCerts: [],
       activeSpaceId: "default",
-      spaceEnv: {}
+      spaceEnv: {},
+      mcpHostEnabled: false,
+      mcpHostPort: 4320,
+      mcpHostToken: "",
+      mcpHostMethods: "GET,HEAD",
+      mcpHostWorkspace: false,
+      mcpHostLogs: false,
+      updateCheckOnStart: false,
+      telemetryAsked: false,
+      shareUsage: false,
+      shareErrors: false
     };
     counter = 0;
     kv = (key = "", value = "", enabled = true, extra = {}) => ({ id: uid(), key, value, enabled, ...extra });
@@ -656,7 +668,7 @@ var init_vars = __esm({
 
 // src/core/prepare.ts
 function scopeFor(ctx) {
-  const scope2 = scopeOf(ctx.globals, ctx.collection?.variables, ctx.environment?.variables);
+  const scope2 = scopeOf(ctx.globals, ctx.handoff ?? void 0, ctx.collection?.variables, ctx.environment?.variables);
   if (ctx.data) for (const [k, v] of Object.entries(ctx.data)) scope2.set(k, v);
   if (ctx.locals) for (const [k, v] of ctx.locals) scope2.set(k, v);
   return scope2;
@@ -683,39 +695,39 @@ function pathVarNames(url) {
 function pathVarsFromUrl(url, existing) {
   return pathVarNames(url).map((name) => existing.find((p) => p.key === name) ?? kv(name, ""));
 }
-function fillPath(url, vars, fill) {
+function fillPath(url, vars, fill2) {
   const { base, query, hash } = splitUrl(url);
   const m = base.match(/^([a-z][a-z0-9+.-]*:\/\/[^/]*)(.*)$/i);
   const origin = m ? m[1] : "";
   const path = m ? m[2] : base;
   const filled = path.replace(/(^|\/):([A-Za-z_][A-Za-z0-9_-]*)/g, (whole, slash, name) => {
     const v = vars.find((p) => p.key === name);
-    return v && v.value !== "" ? `${slash}${encodeComponent(fill(v.value))}` : whole;
+    return v && v.value !== "" ? `${slash}${encodeComponent(fill2(v.value))}` : whole;
   });
   return origin + filled + (query ? `?${query}` : "") + hash;
 }
 function prepare(req, ctx = {}) {
   const scope2 = scopeFor(ctx);
   const missing = /* @__PURE__ */ new Set();
-  const fill = (s) => interpolate(s, scope2, missing);
-  let url = withScheme(fill(fillPath(req.url, req.pathVars, fill)));
-  const headers = req.headers.filter((h) => h.enabled && h.key.trim()).map((h) => [fill(h.key.trim()), fill(h.value)]);
+  const fill2 = (s) => interpolate(s, scope2, missing);
+  let url = withScheme(fill2(fillPath(req.url, req.pathVars, fill2)));
+  const headers = req.headers.filter((h) => h.enabled && h.key.trim()).map((h) => [fill2(h.key.trim()), fill2(h.value)]);
   const auth = effectiveAuth(req, ctx.collection, ctx.folders);
   if (auth) {
     switch (auth.kind) {
       case "basic":
-        if (!has(headers, "authorization")) headers.push(["Authorization", `Basic ${base64Utf8(`${fill(auth.username)}:${fill(auth.password)}`)}`]);
+        if (!has(headers, "authorization")) headers.push(["Authorization", `Basic ${base64Utf8(`${fill2(auth.username)}:${fill2(auth.password)}`)}`]);
         break;
       case "bearer":
-        if (!has(headers, "authorization") && auth.token) headers.push(["Authorization", `Bearer ${fill(auth.token)}`]);
+        if (!has(headers, "authorization") && auth.token) headers.push(["Authorization", `Bearer ${fill2(auth.token)}`]);
         break;
       case "oauth2":
         if (!has(headers, "authorization") && auth.accessToken) headers.push(["Authorization", `Bearer ${auth.accessToken}`]);
         break;
       case "apikey":
         if (auth.key) {
-          if (auth.in === "query") url = appendQuery(url, fill(auth.key), fill(auth.value));
-          else if (!has(headers, auth.key)) headers.push([fill(auth.key), fill(auth.value)]);
+          if (auth.in === "query") url = appendQuery(url, fill2(auth.key), fill2(auth.value));
+          else if (!has(headers, auth.key)) headers.push([fill2(auth.key), fill2(auth.value)]);
         }
         break;
     }
@@ -728,27 +740,27 @@ function prepare(req, ctx = {}) {
   };
   switch (req.body.kind) {
     case "json":
-      body = fill(req.body.text);
+      body = fill2(req.body.text);
       ct("application/json");
       break;
     case "text":
-      body = fill(req.body.text);
+      body = fill2(req.body.text);
       ct("text/plain");
       break;
     case "xml":
-      body = fill(req.body.text);
+      body = fill2(req.body.text);
       ct("application/xml");
       break;
     case "html":
-      body = fill(req.body.text);
+      body = fill2(req.body.text);
       ct("text/html");
       break;
     case "urlencoded":
-      body = req.body.fields.filter((f) => f.enabled && f.key.trim()).map((f) => `${encodeComponent(fill(f.key.trim()))}=${encodeComponent(fill(f.value))}`).join("&");
+      body = req.body.fields.filter((f) => f.enabled && f.key.trim()).map((f) => `${encodeComponent(fill2(f.key.trim()))}=${encodeComponent(fill2(f.value))}`).join("&");
       ct("application/x-www-form-urlencoded");
       break;
     case "formdata":
-      multipart = req.body.fields.filter((f) => f.enabled && f.key.trim()).map((f) => f.type === "file" ? { name: fill(f.key.trim()), file: f.file ? { name: f.file.name, type: f.file.type || "application/octet-stream", base64: f.file.base64 } : { name: "", type: "application/octet-stream", base64: "" } } : { name: fill(f.key.trim()), value: fill(f.value) });
+      multipart = req.body.fields.filter((f) => f.enabled && f.key.trim()).map((f) => f.type === "file" ? { name: fill2(f.key.trim()), file: f.file ? { name: f.file.name, type: f.file.type || "application/octet-stream", base64: f.file.base64 } : { name: "", type: "application/octet-stream", base64: "" } } : { name: fill2(f.key.trim()), value: fill2(f.value) });
       break;
     case "binary":
       if (req.body.file) {
@@ -758,7 +770,7 @@ function prepare(req, ctx = {}) {
       break;
     case "graphql": {
       let variables = void 0;
-      const vt = fill(req.body.graphqlVariables).trim();
+      const vt = fill2(req.body.graphqlVariables).trim();
       if (vt) {
         try {
           variables = JSON.parse(vt);
@@ -766,7 +778,7 @@ function prepare(req, ctx = {}) {
           variables = void 0;
         }
       }
-      body = JSON.stringify(variables === void 0 ? { query: fill(req.body.text) } : { query: fill(req.body.text), variables });
+      body = JSON.stringify(variables === void 0 ? { query: fill2(req.body.text) } : { query: fill2(req.body.text), variables });
       ct("application/json");
       break;
     }
@@ -789,9 +801,9 @@ var init_prepare = __esm({
   }
 });
 
-// node_modules/yaml/dist/nodes/identity.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS({
-  "node_modules/yaml/dist/nodes/identity.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/identity.js"(exports) {
     "use strict";
     var ALIAS = Symbol.for("yaml.alias");
     var DOC = Symbol.for("yaml.document");
@@ -846,9 +858,9 @@ var require_identity = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/visit.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/visit.js
 var require_visit = __commonJS({
-  "node_modules/yaml/dist/visit.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/visit.js"(exports) {
     "use strict";
     var identity = require_identity();
     var BREAK = Symbol("break visit");
@@ -1004,9 +1016,9 @@ var require_visit = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/directives.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS({
-  "node_modules/yaml/dist/doc/directives.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/directives.js"(exports) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -1081,13 +1093,13 @@ var require_directives = __commonJS({
               onError(0, "%YAML directive should contain exactly one part");
               return false;
             }
-            const [version2] = parts;
-            if (version2 === "1.1" || version2 === "1.2") {
-              this.yaml.version = version2;
+            const [version3] = parts;
+            if (version3 === "1.1" || version3 === "1.2") {
+              this.yaml.version = version3;
               return true;
             } else {
-              const isValid = /^\d+\.\d+$/.test(version2);
-              onError(6, `Unsupported YAML version ${version2}`, isValid);
+              const isValid = /^\d+\.\d+$/.test(version3);
+              onError(6, `Unsupported YAML version ${version3}`, isValid);
               return false;
             }
           }
@@ -1175,9 +1187,9 @@ var require_directives = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/anchors.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS({
-  "node_modules/yaml/dist/doc/anchors.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/anchors.js"(exports) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -1245,9 +1257,9 @@ var require_anchors = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/applyReviver.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS({
-  "node_modules/yaml/dist/doc/applyReviver.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/applyReviver.js"(exports) {
     "use strict";
     function applyReviver(reviver, obj, key, val) {
       if (val && typeof val === "object") {
@@ -1295,9 +1307,9 @@ var require_applyReviver = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/toJS.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS({
-  "node_modules/yaml/dist/nodes/toJS.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/toJS.js"(exports) {
     "use strict";
     var identity = require_identity();
     function toJS(value, arg, ctx) {
@@ -1325,9 +1337,9 @@ var require_toJS = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Node.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS({
-  "node_modules/yaml/dist/nodes/Node.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Node.js"(exports) {
     "use strict";
     var applyReviver = require_applyReviver();
     var identity = require_identity();
@@ -1366,9 +1378,9 @@ var require_Node = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Alias.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS({
-  "node_modules/yaml/dist/nodes/Alias.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Alias.js"(exports) {
     "use strict";
     var anchors = require_anchors();
     var visit = require_visit();
@@ -1484,9 +1496,9 @@ var require_Alias = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Scalar.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS({
-  "node_modules/yaml/dist/nodes/Scalar.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Scalar.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Node = require_Node();
@@ -1514,9 +1526,9 @@ var require_Scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/createNode.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS({
-  "node_modules/yaml/dist/doc/createNode.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/createNode.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -1589,9 +1601,9 @@ var require_createNode = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Collection.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS({
-  "node_modules/yaml/dist/nodes/Collection.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Collection.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var identity = require_identity();
@@ -1732,9 +1744,9 @@ var require_Collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyComment.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
     "use strict";
     var stringifyComment = (str3) => str3.replace(/^(?!$)(?: $)?/gm, "#");
     function indentComment(comment, indent) {
@@ -1749,9 +1761,9 @@ var require_stringifyComment = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/foldFlowLines.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS({
-  "node_modules/yaml/dist/stringify/foldFlowLines.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/foldFlowLines.js"(exports) {
     "use strict";
     var FOLD_FLOW = "flow";
     var FOLD_BLOCK = "block";
@@ -1885,9 +1897,9 @@ ${indent}${text.slice(fold + 1, end2)}`;
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyString.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyString.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyString.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var foldFlowLines = require_foldFlowLines();
@@ -2168,9 +2180,9 @@ ${indent}`);
   }
 });
 
-// node_modules/yaml/dist/stringify/stringify.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS({
-  "node_modules/yaml/dist/stringify/stringify.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringify.js"(exports) {
     "use strict";
     var anchors = require_anchors();
     var identity = require_identity();
@@ -2292,9 +2304,9 @@ ${ctx.indent}${str3}`;
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyPair.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyPair.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyPair.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -2425,9 +2437,9 @@ ${ctx.indent}`;
   }
 });
 
-// node_modules/yaml/dist/log.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/log.js
 var require_log = __commonJS({
-  "node_modules/yaml/dist/log.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/log.js"(exports) {
     "use strict";
     var node_process = __require("process");
     function debug(logLevel, ...messages) {
@@ -2447,9 +2459,9 @@ var require_log = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -2507,9 +2519,9 @@ var require_merge = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/addPairToJSMap.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS({
-  "node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports) {
     "use strict";
     var log = require_log();
     var merge = require_merge();
@@ -2571,9 +2583,9 @@ var require_addPairToJSMap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/Pair.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS({
-  "node_modules/yaml/dist/nodes/Pair.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/Pair.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var stringifyPair = require_stringifyPair();
@@ -2611,9 +2623,9 @@ var require_Pair = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyCollection.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var stringify2 = require_stringify();
@@ -2762,9 +2774,9 @@ ${indent}${end}`;
   }
 });
 
-// node_modules/yaml/dist/nodes/YAMLMap.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS({
-  "node_modules/yaml/dist/nodes/YAMLMap.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/YAMLMap.js"(exports) {
     "use strict";
     var stringifyCollection = require_stringifyCollection();
     var addPairToJSMap = require_addPairToJSMap();
@@ -2906,9 +2918,9 @@ var require_YAMLMap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/map.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS({
-  "node_modules/yaml/dist/schema/common/map.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/map.js"(exports) {
     "use strict";
     var identity = require_identity();
     var YAMLMap = require_YAMLMap();
@@ -2928,9 +2940,9 @@ var require_map = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/nodes/YAMLSeq.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS({
-  "node_modules/yaml/dist/nodes/YAMLSeq.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/nodes/YAMLSeq.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var stringifyCollection = require_stringifyCollection();
@@ -3044,9 +3056,9 @@ var require_YAMLSeq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/seq.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS({
-  "node_modules/yaml/dist/schema/common/seq.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/seq.js"(exports) {
     "use strict";
     var identity = require_identity();
     var YAMLSeq = require_YAMLSeq();
@@ -3066,9 +3078,9 @@ var require_seq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/string.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS({
-  "node_modules/yaml/dist/schema/common/string.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/string.js"(exports) {
     "use strict";
     var stringifyString = require_stringifyString();
     var string = {
@@ -3085,9 +3097,9 @@ var require_string = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/common/null.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS({
-  "node_modules/yaml/dist/schema/common/null.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/common/null.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var nullTag = {
@@ -3103,9 +3115,9 @@ var require_null = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/bool.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS({
-  "node_modules/yaml/dist/schema/core/bool.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/bool.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var boolTag = {
@@ -3127,9 +3139,9 @@ var require_bool = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyNumber.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyNumber.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyNumber.js"(exports) {
     "use strict";
     function stringifyNumber({ format, minFractionDigits, tag, value }) {
       if (typeof value === "bigint")
@@ -3154,9 +3166,9 @@ var require_stringifyNumber = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/float.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS({
-  "node_modules/yaml/dist/schema/core/float.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/float.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -3200,9 +3212,9 @@ var require_float = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/int.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS({
-  "node_modules/yaml/dist/schema/core/int.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/int.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -3245,9 +3257,9 @@ var require_int = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/core/schema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS({
-  "node_modules/yaml/dist/schema/core/schema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/core/schema.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3273,9 +3285,9 @@ var require_schema = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/json/schema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS({
-  "node_modules/yaml/dist/schema/json/schema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/json/schema.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var map = require_map();
@@ -3340,9 +3352,9 @@ var require_schema2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports) {
     "use strict";
     var node_buffer = __require("buffer");
     var Scalar = require_Scalar();
@@ -3406,9 +3418,9 @@ var require_binary = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -3484,9 +3496,9 @@ ${cn.comment}` : item.comment;
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports) {
     "use strict";
     var identity = require_identity();
     var toJS = require_toJS();
@@ -3562,9 +3574,9 @@ var require_omap = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     function boolStringify({ value, source }, ctx) {
@@ -3594,9 +3606,9 @@ var require_bool2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/float.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -3643,9 +3655,9 @@ var require_float2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/int.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -3722,9 +3734,9 @@ var require_int2 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/set.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -3811,9 +3823,9 @@ var require_set = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     function parseSexagesimal(str3, asBigInt) {
@@ -3899,9 +3911,9 @@ var require_timestamp = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS({
-  "node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3943,9 +3955,9 @@ var require_schema3 = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/tags.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS({
-  "node_modules/yaml/dist/schema/tags.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/tags.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -4037,9 +4049,9 @@ var require_tags = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/schema/Schema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS({
-  "node_modules/yaml/dist/schema/Schema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/schema/Schema.js"(exports) {
     "use strict";
     var identity = require_identity();
     var map = require_map();
@@ -4069,9 +4081,9 @@ var require_Schema = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/stringify/stringifyDocument.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS({
-  "node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
     "use strict";
     var identity = require_identity();
     var stringify2 = require_stringify();
@@ -4149,9 +4161,9 @@ var require_stringifyDocument = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/doc/Document.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS({
-  "node_modules/yaml/dist/doc/Document.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/doc/Document.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var Collection = require_Collection();
@@ -4189,14 +4201,14 @@ var require_Document = __commonJS({
           version: "1.2"
         }, options);
         this.options = opt;
-        let { version: version2 } = opt;
+        let { version: version3 } = opt;
         if (options?._directives) {
           this.directives = options._directives.atDocument();
           if (this.directives.yaml.explicit)
-            version2 = this.directives.yaml.version;
+            version3 = this.directives.yaml.version;
         } else
-          this.directives = new directives.Directives({ version: version2 });
-        this.setSchema(version2, options);
+          this.directives = new directives.Directives({ version: version3 });
+        this.setSchema(version3, options);
         this.contents = value === void 0 ? null : this.createNode(value, _replacer, options);
       }
       /**
@@ -4376,11 +4388,11 @@ var require_Document = __commonJS({
        *
        * Overrides all previously set schema options.
        */
-      setSchema(version2, options = {}) {
-        if (typeof version2 === "number")
-          version2 = String(version2);
+      setSchema(version3, options = {}) {
+        if (typeof version3 === "number")
+          version3 = String(version3);
         let opt;
-        switch (version2) {
+        switch (version3) {
           case "1.1":
             if (this.directives)
               this.directives.yaml.version = "1.1";
@@ -4391,9 +4403,9 @@ var require_Document = __commonJS({
           case "1.2":
           case "next":
             if (this.directives)
-              this.directives.yaml.version = version2;
+              this.directives.yaml.version = version3;
             else
-              this.directives = new directives.Directives({ version: version2 });
+              this.directives = new directives.Directives({ version: version3 });
             opt = { resolveKnownTags: true, schema: "core" };
             break;
           case null:
@@ -4402,7 +4414,7 @@ var require_Document = __commonJS({
             opt = null;
             break;
           default: {
-            const sv = JSON.stringify(version2);
+            const sv = JSON.stringify(version3);
             throw new Error(`Expected '1.1', '1.2' or null as first argument, but found: ${sv}`);
           }
         }
@@ -4458,9 +4470,9 @@ var require_Document = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/errors.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/errors.js
 var require_errors = __commonJS({
-  "node_modules/yaml/dist/errors.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/errors.js"(exports) {
     "use strict";
     var YAMLError = class extends Error {
       constructor(name, pos, code, message) {
@@ -4523,9 +4535,9 @@ ${pointer}
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-props.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-props.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-props.js"(exports) {
     "use strict";
     function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
       let spaceBefore = false;
@@ -4657,9 +4669,9 @@ var require_resolve_props = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-contains-newline.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS({
-  "node_modules/yaml/dist/compose/util-contains-newline.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-contains-newline.js"(exports) {
     "use strict";
     function containsNewline(key) {
       if (!key)
@@ -4699,9 +4711,9 @@ var require_util_contains_newline = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-flow-indent-check.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS({
-  "node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports) {
     "use strict";
     var utilContainsNewline = require_util_contains_newline();
     function flowIndentCheck(indent, fc, onError) {
@@ -4717,9 +4729,9 @@ var require_util_flow_indent_check = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-map-includes.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS({
-  "node_modules/yaml/dist/compose/util-map-includes.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-map-includes.js"(exports) {
     "use strict";
     var identity = require_identity();
     function mapIncludes(ctx, items, search) {
@@ -4733,9 +4745,9 @@ var require_util_map_includes = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-map.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-map.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-map.js"(exports) {
     "use strict";
     var Pair = require_Pair();
     var YAMLMap = require_YAMLMap();
@@ -4841,9 +4853,9 @@ var require_resolve_block_map = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-seq.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-seq.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-seq.js"(exports) {
     "use strict";
     var YAMLSeq = require_YAMLSeq();
     var resolveProps = require_resolve_props();
@@ -4892,9 +4904,9 @@ var require_resolve_block_seq = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-end.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-end.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-end.js"(exports) {
     "use strict";
     function resolveEnd(end, offset, reqSpace, onError) {
       let comment = "";
@@ -4935,9 +4947,9 @@ var require_resolve_end = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-collection.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -5129,9 +5141,9 @@ var require_resolve_flow_collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-collection.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS({
-  "node_modules/yaml/dist/compose/compose-collection.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-collection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -5194,9 +5206,9 @@ var require_compose_collection = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-block-scalar.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     function resolveBlockScalar(ctx, scalar, onError) {
@@ -5377,9 +5389,9 @@ var require_resolve_block_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var resolveEnd = require_resolve_end();
@@ -5598,9 +5610,9 @@ var require_resolve_flow_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-scalar.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS({
-  "node_modules/yaml/dist/compose/compose-scalar.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-scalar.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -5679,9 +5691,9 @@ var require_compose_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS({
-  "node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports) {
     "use strict";
     function emptyScalarPosition(offset, before, pos) {
       if (before) {
@@ -5709,9 +5721,9 @@ var require_util_empty_scalar_position = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-node.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS({
-  "node_modules/yaml/dist/compose/compose-node.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-node.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -5815,9 +5827,9 @@ var require_compose_node = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/compose-doc.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS({
-  "node_modules/yaml/dist/compose/compose-doc.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/compose-doc.js"(exports) {
     "use strict";
     var Document = require_Document();
     var composeNode = require_compose_node();
@@ -5858,9 +5870,9 @@ var require_compose_doc = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/compose/composer.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS({
-  "node_modules/yaml/dist/compose/composer.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/compose/composer.js"(exports) {
     "use strict";
     var node_process = __require("process");
     var directives = require_directives();
@@ -6066,9 +6078,9 @@ ${end.comment}` : end.comment;
   }
 });
 
-// node_modules/yaml/dist/parse/cst-scalar.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS({
-  "node_modules/yaml/dist/parse/cst-scalar.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-scalar.js"(exports) {
     "use strict";
     var resolveBlockScalar = require_resolve_block_scalar();
     var resolveFlowScalar = require_resolve_flow_scalar();
@@ -6251,9 +6263,9 @@ var require_cst_scalar = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst-stringify.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS({
-  "node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
     "use strict";
     var stringify2 = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
     function stringifyToken(token) {
@@ -6312,9 +6324,9 @@ var require_cst_stringify = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst-visit.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS({
-  "node_modules/yaml/dist/parse/cst-visit.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst-visit.js"(exports) {
     "use strict";
     var BREAK = Symbol("break visit");
     var SKIP = Symbol("skip children");
@@ -6374,9 +6386,9 @@ var require_cst_visit = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/cst.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS({
-  "node_modules/yaml/dist/parse/cst.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/cst.js"(exports) {
     "use strict";
     var cstScalar = require_cst_scalar();
     var cstStringify = require_cst_stringify();
@@ -6476,9 +6488,9 @@ var require_cst = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/lexer.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS({
-  "node_modules/yaml/dist/parse/lexer.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/lexer.js"(exports) {
     "use strict";
     var cst = require_cst();
     function isEmpty(ch) {
@@ -7065,9 +7077,9 @@ var require_lexer = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/line-counter.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS({
-  "node_modules/yaml/dist/parse/line-counter.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/line-counter.js"(exports) {
     "use strict";
     var LineCounter = class {
       constructor() {
@@ -7096,9 +7108,9 @@ var require_line_counter = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/parse/parser.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS({
-  "node_modules/yaml/dist/parse/parser.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/parse/parser.js"(exports) {
     "use strict";
     var node_process = __require("process");
     var cst = require_cst();
@@ -7970,9 +7982,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/public-api.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS({
-  "node_modules/yaml/dist/public-api.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/public-api.js"(exports) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -8067,9 +8079,9 @@ var require_public_api = __commonJS({
   }
 });
 
-// node_modules/yaml/dist/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/yaml/dist/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/yaml/dist/index.js"(exports) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -8267,7 +8279,9 @@ function prepareContext(ctx, req) {
     globals: ctx.globals,
     folders: folderChain(ctx.folders, req.folderId),
     data: ctx.data ?? null,
-    locals: ctx.locals ?? null
+    locals: ctx.locals ?? null,
+    // Until it's filed (move_request gives the new collection these), a handed copy still resolves its {{variables}}.
+    handoff: req.handoff?.variables ?? null
   };
 }
 async function execute(req, ctx, transport, opts, pipeline = {}) {
@@ -8322,7 +8336,7 @@ var init_runtime = __esm({
   }
 });
 
-// node_modules/chai/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/chai/index.js
 var chai_exports = {};
 __export(chai_exports, {
   Assertion: () => Assertion,
@@ -10536,7 +10550,7 @@ function use(fn) {
 }
 var __defProp2, __name, __export2, utils_exports, check_error_exports, canElideFrames, AssertionError, ansiColors, styles, truncator, getArrayName, isNaN2, stringEscapeChars, escapeCharacters, hex2, unicodeLength, getPromiseValue, promise_default, toStringTag, errorKeys, symbolsSupported, chaiInspect, nodeInspect, constructorMap, stringTagMap, baseTypesMap, inspectCustom, toString, config, MemoizeMap, deep_eql_default, Assertion, fnLengthDesc, builtins, canSetPrototype, testFn, excludeNames, call, apply, isNaN22, flag2, functionTypes, should_exports, should, Should, aliases, used;
 var init_chai = __esm({
-  "node_modules/chai/index.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/chai/index.js"() {
     __defProp2 = Object.defineProperty;
     __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
     __export2 = (target, all) => {
@@ -12486,6 +12500,48 @@ function responseApi(r, libs = {}) {
   res.to = { be, have, not: { have: { header: (k) => expect(headers.has(k), `expected no header ${k}`).to.equal(false) } } };
   return res;
 }
+function dxScope(store, readOnly = false) {
+  const write = (fn) => (...a) => {
+    if (readOnly) throw new Error("dx.row is the current data-file row and can\u2019t be changed; use dx.vars.set for a value in this run.");
+    fn(...a);
+  };
+  return {
+    get: (name) => store[name],
+    has: (name) => Object.prototype.hasOwnProperty.call(store, name),
+    all: () => ({ ...store }),
+    fill: (text) => fill(text, store),
+    set: write((name, value) => {
+      store[name] = typeof value === "string" ? value : fmt(value);
+    }),
+    unset: write((name) => {
+      delete store[name];
+    }),
+    clear: write(() => {
+      for (const k of Object.keys(store)) delete store[k];
+    })
+  };
+}
+function dxResponse(r, libs = {}) {
+  const base = responseApi(r, libs);
+  return {
+    status: r.code,
+    statusText: r.status,
+    ok: r.code >= 200 && r.code < 300,
+    time: r.responseTime,
+    size: r.responseSize,
+    headers: { get: base.headers.get, has: (name) => base.headers.has(name), all: base.headers.toObject },
+    text: base.text,
+    json: (path) => path === void 0 ? base.json() : dig(base.json(), path),
+    /** Checks the JSON body against a JSON Schema: `{ valid, errors }`. */
+    validate: (schema, options = {}) => {
+      const Ajv = libs.ajv;
+      if (!Ajv) throw new Error("Schema checks need ajv, which didn\u2019t load.");
+      const check = new Ajv({ allErrors: true, strict: false, ...options }).compile(schema);
+      const valid = check(base.json());
+      return { valid, errors: (check.errors ?? []).map((e) => `${e.instancePath || "(root)"} ${e.message ?? ""}`.trim()) };
+    }
+  };
+}
 async function runScript(input, host, compile, libs = {}) {
   const vars = structuredClone(input.vars);
   const request = structuredClone(input.request);
@@ -12579,6 +12635,106 @@ async function runScript(input, host, compile, libs = {}) {
     pending.push(done.catch(() => void 0));
     return done;
   };
+  const dxSend = (req) => {
+    const o = typeof req === "string" ? { url: req } : req;
+    const headers = Object.entries(o.headers ?? {}).map(([key, value]) => ({ key, value: String(value) }));
+    let raw = "";
+    if (typeof o.body === "string") raw = o.body;
+    else if (o.body !== void 0 && o.body !== null) {
+      raw = JSON.stringify(o.body);
+      if (!headers.some((h) => h.key.toLowerCase() === "content-type")) headers.push({ key: "Content-Type", value: "application/json" });
+    }
+    const r = { name: "dx.send", url: String(o.url ?? ""), method: String(o.method ?? "GET").toUpperCase(), headers, body: raw ? { mode: "raw", raw } : { mode: "none", raw: "" } };
+    const done = host.sendRequest(r).then((res) => dxResponse(res, libs));
+    pending.push(done.catch(() => void 0));
+    return done;
+  };
+  const visualize = (template, data) => {
+    const hb = libs.handlebars;
+    if (!hb) throw new Error("The visualizer needs handlebars, which didn\u2019t load.");
+    const body = hb.compile(String(template))(data ?? {});
+    const json = JSON.stringify(data ?? null).replace(/</g, "\\u003c");
+    visualizer = { html: `<script>window.dx={data:${json}};window.pm={getData:function(cb){cb(null,${json})}}</script>${body}` };
+  };
+  const requireLib = (name) => {
+    if (name === "chai") return chai_exports;
+    if (libs[name]) return libs[name];
+    throw new Error(`require('${name}') isn\u2019t available. You can use: chai, lodash, moment, crypto-js, uuid, ajv, handlebars.`);
+  };
+  const runValues = () => ({ ...vars.globals, ...vars.collection, ...vars.environment, ...vars.data, ...vars.locals });
+  const dx = {
+    /** Every variable as a request sees it (this run, data row, environment, collection, globals); set() lasts for this run. */
+    vars: {
+      get: (name) => runValues()[name],
+      has: (name) => name in runValues(),
+      all: runValues,
+      fill: (text) => fill(text, runValues()),
+      set: (name, value) => {
+        vars.locals[name] = typeof value === "string" ? value : fmt(value);
+      },
+      unset: (name) => {
+        delete vars.locals[name];
+      }
+    },
+    env: dxScope(vars.environment),
+    collection: dxScope(vars.collection),
+    globals: dxScope(vars.globals),
+    row: dxScope(vars.data, true),
+    request: {
+      get name() {
+        return request.name;
+      },
+      get url() {
+        return request.url;
+      },
+      set url(v) {
+        request.url = String(v);
+      },
+      get method() {
+        return request.method;
+      },
+      set method(v) {
+        request.method = String(v).toUpperCase();
+      },
+      headers: {
+        get: reqHeaders.get,
+        has: (name) => reqHeaders.has(name),
+        all: reqHeaders.toObject,
+        remove: reqHeaders.remove,
+        set: (name, value) => reqHeaders.upsert({ key: name, value: String(value) })
+      },
+      /** The body as text. Setting an object sends it as JSON. */
+      get body() {
+        return request.body.raw;
+      },
+      set body(v) {
+        if (typeof v === "string") request.body.raw = v;
+        else {
+          request.body.raw = JSON.stringify(v);
+          if (!reqHeaders.has("content-type")) reqHeaders.upsert({ key: "Content-Type", value: "application/json" });
+        }
+        if (request.body.mode === "none") request.body.mode = "raw";
+      }
+    },
+    response: input.response ? dxResponse(input.response, libs) : void 0,
+    test: test2,
+    expect,
+    send: dxSend,
+    /** Before the request: don't send it. */
+    skip: () => {
+      skip = true;
+    },
+    /** In a run: go to this request next. */
+    next: (name) => {
+      nextRequest = String(name);
+    },
+    /** In a run: stop after this request. */
+    stop: () => {
+      nextRequest = null;
+    },
+    visualize,
+    info: { request: input.info.requestName, requestId: input.info.requestId, iteration: input.info.iteration, iterations: input.info.iterationCount, phase: input.phase === "pre" ? "before" : "after" }
+  };
   const pm = {
     globals: scope(vars.globals, "globals"),
     collectionVariables: scope(vars.collection, "collection"),
@@ -12611,23 +12767,10 @@ async function runScript(input, host, compile, libs = {}) {
       },
       location: [input.source]
     },
-    require: (name) => {
-      if (name === "chai") return chai_exports;
-      if (libs[name]) return libs[name];
-      throw new Error(`require('${name}') isn\u2019t available. You can use: chai, lodash, moment, crypto-js, uuid, ajv, handlebars.`);
-    },
-    visualizer: {
-      set: (template, data) => {
-        const hb = libs.handlebars;
-        if (!hb) throw new Error("The visualizer needs handlebars, which didn\u2019t load.");
-        const body = hb.compile(String(template))(data ?? {});
-        const json = JSON.stringify(data ?? null).replace(/</g, "\\u003c");
-        visualizer = { html: `<script>window.pm={getData:function(cb){cb(null,${json})}}</script>${body}` };
-      },
-      clear: () => {
-        visualizer = { html: "" };
-      }
-    }
+    require: requireLib,
+    visualizer: { set: visualize, clear: () => {
+      visualizer = { html: "" };
+    } }
   };
   const legacyTests = {};
   const postman = { setNextRequest: pm.execution.setNextRequest, setEnvironmentVariable: pm.environment.set, getEnvironmentVariable: pm.environment.get, setGlobalVariable: pm.globals.set, getGlobalVariable: pm.globals.get };
@@ -12635,8 +12778,8 @@ async function runScript(input, host, compile, libs = {}) {
     const fn = compile(`"use strict";
 return (async () => {
 ${input.code}
-})()`, ["pm", "console", "postman", "tests", "require", "responseBody", "responseCode", "_"]);
-    await fn(pm, console2, postman, legacyTests, pm.require, input.response?.body, input.response ? { code: input.response.code, name: input.response.status } : void 0, libs.lodash);
+})()`, ["dx", "test", "expect", "console", "require", "_", "pm", "postman", "tests", "responseBody", "responseCode"]);
+    await fn(dx, test2, expect, console2, requireLib, libs.lodash, pm, postman, legacyTests, input.response?.body, input.response ? { code: input.response.code, name: input.response.status } : void 0);
     for (let i = 0; i < pending.length; i++) await pending[i];
   } catch (e) {
     const o = out();
@@ -12648,7 +12791,7 @@ ${input.code}
   for (const [name, passed] of Object.entries(legacyTests)) tests.push({ name, passed: !!passed });
   return out();
 }
-var fmt, parseHeader, compileWithFunction;
+var fmt, parseHeader, fill, dig, compileWithFunction;
 var init_scripts = __esm({
   "src/core/scripts.ts"() {
     "use strict";
@@ -12666,13 +12809,15 @@ var init_scripts = __esm({
       const i = s.indexOf(":");
       return { key: s.slice(0, i).trim(), value: s.slice(i + 1).trim() };
     };
+    fill = (s, values) => String(s).replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (w, n) => values[n] ?? w);
+    dig = (data, path) => path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean).reduce((o, k) => o == null ? void 0 : o[k], data);
     compileWithFunction = (code, params) => new Function(...params, code);
   }
 });
 
-// node_modules/lodash/lodash.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/lodash/lodash.js
 var require_lodash = __commonJS({
-  "node_modules/lodash/lodash.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/lodash/lodash.js"(exports, module) {
     (function() {
       var undefined2;
       var VERSION2 = "4.18.1";
@@ -15890,7 +16035,7 @@ var require_lodash = __commonJS({
         function dropWhile(array, predicate) {
           return array && array.length ? baseWhile(array, getIteratee(predicate, 3), true) : [];
         }
-        function fill(array, value, start, end) {
+        function fill2(array, value, start, end) {
           var length = array == null ? 0 : array.length;
           if (!length) {
             return [];
@@ -16513,37 +16658,37 @@ var require_lodash = __commonJS({
             maxWait = maxing ? nativeMax(toNumber(options.maxWait) || 0, wait) : maxWait;
             trailing = "trailing" in options ? !!options.trailing : trailing;
           }
-          function invokeFunc(time2) {
+          function invokeFunc(time3) {
             var args = lastArgs, thisArg = lastThis;
             lastArgs = lastThis = undefined2;
-            lastInvokeTime = time2;
+            lastInvokeTime = time3;
             result2 = func.apply(thisArg, args);
             return result2;
           }
-          function leadingEdge(time2) {
-            lastInvokeTime = time2;
+          function leadingEdge(time3) {
+            lastInvokeTime = time3;
             timerId = setTimeout2(timerExpired, wait);
-            return leading ? invokeFunc(time2) : result2;
+            return leading ? invokeFunc(time3) : result2;
           }
-          function remainingWait(time2) {
-            var timeSinceLastCall = time2 - lastCallTime, timeSinceLastInvoke = time2 - lastInvokeTime, timeWaiting = wait - timeSinceLastCall;
+          function remainingWait(time3) {
+            var timeSinceLastCall = time3 - lastCallTime, timeSinceLastInvoke = time3 - lastInvokeTime, timeWaiting = wait - timeSinceLastCall;
             return maxing ? nativeMin(timeWaiting, maxWait - timeSinceLastInvoke) : timeWaiting;
           }
-          function shouldInvoke(time2) {
-            var timeSinceLastCall = time2 - lastCallTime, timeSinceLastInvoke = time2 - lastInvokeTime;
+          function shouldInvoke(time3) {
+            var timeSinceLastCall = time3 - lastCallTime, timeSinceLastInvoke = time3 - lastInvokeTime;
             return lastCallTime === undefined2 || timeSinceLastCall >= wait || timeSinceLastCall < 0 || maxing && timeSinceLastInvoke >= maxWait;
           }
           function timerExpired() {
-            var time2 = now();
-            if (shouldInvoke(time2)) {
-              return trailingEdge(time2);
+            var time3 = now();
+            if (shouldInvoke(time3)) {
+              return trailingEdge(time3);
             }
-            timerId = setTimeout2(timerExpired, remainingWait(time2));
+            timerId = setTimeout2(timerExpired, remainingWait(time3));
           }
-          function trailingEdge(time2) {
+          function trailingEdge(time3) {
             timerId = undefined2;
             if (trailing && lastArgs) {
-              return invokeFunc(time2);
+              return invokeFunc(time3);
             }
             lastArgs = lastThis = undefined2;
             return result2;
@@ -16559,10 +16704,10 @@ var require_lodash = __commonJS({
             return timerId === undefined2 ? result2 : trailingEdge(now());
           }
           function debounced() {
-            var time2 = now(), isInvoking = shouldInvoke(time2);
+            var time3 = now(), isInvoking = shouldInvoke(time3);
             lastArgs = arguments;
             lastThis = this;
-            lastCallTime = time2;
+            lastCallTime = time3;
             if (isInvoking) {
               if (timerId === undefined2) {
                 return leadingEdge(lastCallTime);
@@ -17154,7 +17299,7 @@ var require_lodash = __commonJS({
         function valuesIn(object) {
           return object == null ? [] : baseValues(object, keysIn(object));
         }
-        function clamp(number, lower, upper) {
+        function clamp2(number, lower, upper) {
           if (upper === undefined2) {
             upper = lower;
             lower = undefined2;
@@ -17712,7 +17857,7 @@ var require_lodash = __commonJS({
         lodash.dropRight = dropRight;
         lodash.dropRightWhile = dropRightWhile;
         lodash.dropWhile = dropWhile;
-        lodash.fill = fill;
+        lodash.fill = fill2;
         lodash.filter = filter;
         lodash.flatMap = flatMap;
         lodash.flatMapDeep = flatMapDeep;
@@ -17836,7 +17981,7 @@ var require_lodash = __commonJS({
         lodash.camelCase = camelCase;
         lodash.capitalize = capitalize;
         lodash.ceil = ceil;
-        lodash.clamp = clamp;
+        lodash.clamp = clamp2;
         lodash.clone = clone;
         lodash.cloneDeep = cloneDeep;
         lodash.cloneDeepWith = cloneDeepWith;
@@ -18168,9 +18313,9 @@ var require_lodash = __commonJS({
   }
 });
 
-// node_modules/moment/moment.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/moment/moment.js
 var require_moment = __commonJS({
-  "node_modules/moment/moment.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/moment/moment.js"(exports, module) {
     (function(global2, factory) {
       typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : global2.moment = factory();
     })(exports, (function() {
@@ -20971,20 +21116,20 @@ var require_moment = __commonJS({
         var diff2 = myMoment.diff(now2, "days", true);
         return diff2 < -6 ? "sameElse" : diff2 < -1 ? "lastWeek" : diff2 < 0 ? "lastDay" : diff2 < 1 ? "sameDay" : diff2 < 2 ? "nextDay" : diff2 < 7 ? "nextWeek" : "sameElse";
       }
-      function calendar(time2, formats) {
+      function calendar(time3, formats) {
         if (arguments.length === 1) {
           if (!arguments[0]) {
-            time2 = void 0;
+            time3 = void 0;
             formats = void 0;
           } else if (isMomentInput(arguments[0])) {
-            time2 = arguments[0];
+            time3 = arguments[0];
             formats = void 0;
           } else if (isCalendarSpec(arguments[0])) {
             formats = arguments[0];
-            time2 = void 0;
+            time3 = void 0;
           }
         }
-        var now2 = time2 || createLocal(), sod = cloneWithOffset(now2, this).startOf("day"), format2 = hooks.calendarFormat(this, sod) || "sameElse", output = formats && (isFunction(formats[format2]) ? formats[format2].call(this, now2) : formats[format2]);
+        var now2 = time3 || createLocal(), sod = cloneWithOffset(now2, this).startOf("day"), format2 = hooks.calendarFormat(this, sod) || "sameElse", output = formats && (isFunction(formats[format2]) ? formats[format2].call(this, now2) : formats[format2]);
         return this.format(
           output || this.localeData().calendar(format2, this, createLocal(now2))
         );
@@ -21153,9 +21298,9 @@ var require_moment = __commonJS({
         var output = formatMoment(this, inputString);
         return this.localeData().postformat(output);
       }
-      function from(time2, withoutSuffix) {
-        if (this.isValid() && (isMoment(time2) && time2.isValid() || createLocal(time2).isValid())) {
-          return createDuration({ to: this, from: time2 }).locale(this.locale()).humanize(!withoutSuffix);
+      function from(time3, withoutSuffix) {
+        if (this.isValid() && (isMoment(time3) && time3.isValid() || createLocal(time3).isValid())) {
+          return createDuration({ to: this, from: time3 }).locale(this.locale()).humanize(!withoutSuffix);
         } else {
           return this.localeData().invalidDate();
         }
@@ -21163,9 +21308,9 @@ var require_moment = __commonJS({
       function fromNow(withoutSuffix) {
         return this.from(createLocal(), withoutSuffix);
       }
-      function to(time2, withoutSuffix) {
-        if (this.isValid() && (isMoment(time2) && time2.isValid() || createLocal(time2).isValid())) {
-          return createDuration({ from: this, to: time2 }).locale(this.locale()).humanize(!withoutSuffix);
+      function to(time3, withoutSuffix) {
+        if (this.isValid() && (isMoment(time3) && time3.isValid() || createLocal(time3).isValid())) {
+          return createDuration({ from: this, to: time3 }).locale(this.locale()).humanize(!withoutSuffix);
         } else {
           return this.localeData().invalidDate();
         }
@@ -21217,7 +21362,7 @@ var require_moment = __commonJS({
         }
       }
       function startOf(units) {
-        var time2, startOfDate;
+        var time3, startOfDate;
         units = normalizeUnits(units);
         if (units === void 0 || units === "millisecond" || !this.isValid()) {
           return this;
@@ -21225,27 +21370,27 @@ var require_moment = __commonJS({
         startOfDate = this._isUTC ? utcStartOfDate : localStartOfDate;
         switch (units) {
           case "year":
-            time2 = startOfDate(this.year(), 0, 1);
+            time3 = startOfDate(this.year(), 0, 1);
             break;
           case "quarter":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month() - this.month() % 3,
               1
             );
             break;
           case "month":
-            time2 = startOfDate(this.year(), this.month(), 1);
+            time3 = startOfDate(this.year(), this.month(), 1);
             break;
           case "week":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month(),
               this.date() - this.weekday()
             );
             break;
           case "isoWeek":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month(),
               this.date() - (this.isoWeekday() - 1)
@@ -21253,30 +21398,30 @@ var require_moment = __commonJS({
             break;
           case "day":
           case "date":
-            time2 = startOfDate(this.year(), this.month(), this.date());
+            time3 = startOfDate(this.year(), this.month(), this.date());
             break;
           case "hour":
-            time2 = this._d.valueOf();
-            time2 -= mod(
-              time2 + (this._isUTC ? 0 : this.utcOffset() * MS_PER_MINUTE),
+            time3 = this._d.valueOf();
+            time3 -= mod(
+              time3 + (this._isUTC ? 0 : this.utcOffset() * MS_PER_MINUTE),
               MS_PER_HOUR
             );
             break;
           case "minute":
-            time2 = this._d.valueOf();
-            time2 -= mod(time2, MS_PER_MINUTE);
+            time3 = this._d.valueOf();
+            time3 -= mod(time3, MS_PER_MINUTE);
             break;
           case "second":
-            time2 = this._d.valueOf();
-            time2 -= mod(time2, MS_PER_SECOND);
+            time3 = this._d.valueOf();
+            time3 -= mod(time3, MS_PER_SECOND);
             break;
         }
-        this._d.setTime(time2);
+        this._d.setTime(time3);
         hooks.updateOffset(this, true);
         return this;
       }
       function endOf(units) {
-        var time2, startOfDate;
+        var time3, startOfDate;
         units = normalizeUnits(units);
         if (units === void 0 || units === "millisecond" || !this.isValid()) {
           return this;
@@ -21284,27 +21429,27 @@ var require_moment = __commonJS({
         startOfDate = this._isUTC ? utcStartOfDate : localStartOfDate;
         switch (units) {
           case "year":
-            time2 = startOfDate(this.year() + 1, 0, 1) - 1;
+            time3 = startOfDate(this.year() + 1, 0, 1) - 1;
             break;
           case "quarter":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month() - this.month() % 3 + 3,
               1
             ) - 1;
             break;
           case "month":
-            time2 = startOfDate(this.year(), this.month() + 1, 1) - 1;
+            time3 = startOfDate(this.year(), this.month() + 1, 1) - 1;
             break;
           case "week":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month(),
               this.date() - this.weekday() + 7
             ) - 1;
             break;
           case "isoWeek":
-            time2 = startOfDate(
+            time3 = startOfDate(
               this.year(),
               this.month(),
               this.date() - (this.isoWeekday() - 1) + 7
@@ -21312,25 +21457,25 @@ var require_moment = __commonJS({
             break;
           case "day":
           case "date":
-            time2 = startOfDate(this.year(), this.month(), this.date() + 1) - 1;
+            time3 = startOfDate(this.year(), this.month(), this.date() + 1) - 1;
             break;
           case "hour":
-            time2 = this._d.valueOf();
-            time2 += MS_PER_HOUR - mod(
-              time2 + (this._isUTC ? 0 : this.utcOffset() * MS_PER_MINUTE),
+            time3 = this._d.valueOf();
+            time3 += MS_PER_HOUR - mod(
+              time3 + (this._isUTC ? 0 : this.utcOffset() * MS_PER_MINUTE),
               MS_PER_HOUR
             ) - 1;
             break;
           case "minute":
-            time2 = this._d.valueOf();
-            time2 += MS_PER_MINUTE - mod(time2, MS_PER_MINUTE) - 1;
+            time3 = this._d.valueOf();
+            time3 += MS_PER_MINUTE - mod(time3, MS_PER_MINUTE) - 1;
             break;
           case "second":
-            time2 = this._d.valueOf();
-            time2 += MS_PER_SECOND - mod(time2, MS_PER_SECOND) - 1;
+            time3 = this._d.valueOf();
+            time3 += MS_PER_SECOND - mod(time3, MS_PER_SECOND) - 1;
             break;
         }
-        this._d.setTime(time2);
+        this._d.setTime(time3);
         hooks.updateOffset(this, true);
         return this;
       }
@@ -22336,9 +22481,9 @@ var require_moment = __commonJS({
   }
 });
 
-// node_modules/crypto-js/core.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/core.js
 var require_core = __commonJS({
-  "node_modules/crypto-js/core.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/core.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory();
@@ -22944,9 +23089,9 @@ var require_core = __commonJS({
   }
 });
 
-// node_modules/crypto-js/x64-core.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/x64-core.js
 var require_x64_core = __commonJS({
-  "node_modules/crypto-js/x64-core.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/x64-core.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23201,9 +23346,9 @@ var require_x64_core = __commonJS({
   }
 });
 
-// node_modules/crypto-js/lib-typedarrays.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/lib-typedarrays.js
 var require_lib_typedarrays = __commonJS({
-  "node_modules/crypto-js/lib-typedarrays.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/lib-typedarrays.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23246,9 +23391,9 @@ var require_lib_typedarrays = __commonJS({
   }
 });
 
-// node_modules/crypto-js/enc-utf16.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-utf16.js
 var require_enc_utf16 = __commonJS({
-  "node_modules/crypto-js/enc-utf16.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-utf16.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23364,9 +23509,9 @@ var require_enc_utf16 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/enc-base64.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-base64.js
 var require_enc_base64 = __commonJS({
-  "node_modules/crypto-js/enc-base64.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-base64.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23472,9 +23617,9 @@ var require_enc_base64 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/enc-base64url.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-base64url.js
 var require_enc_base64url = __commonJS({
-  "node_modules/crypto-js/enc-base64url.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/enc-base64url.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23591,9 +23736,9 @@ var require_enc_base64url = __commonJS({
   }
 });
 
-// node_modules/crypto-js/md5.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/md5.js
 var require_md5 = __commonJS({
-  "node_modules/crypto-js/md5.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/md5.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23770,9 +23915,9 @@ var require_md5 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha1.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha1.js
 var require_sha1 = __commonJS({
-  "node_modules/crypto-js/sha1.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha1.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23861,9 +24006,9 @@ var require_sha1 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha256.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha256.js
 var require_sha256 = __commonJS({
-  "node_modules/crypto-js/sha256.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha256.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -23982,9 +24127,9 @@ var require_sha256 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha224.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha224.js
 var require_sha224 = __commonJS({
-  "node_modules/crypto-js/sha224.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha224.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_sha256());
@@ -24027,9 +24172,9 @@ var require_sha224 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha512.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha512.js
 var require_sha512 = __commonJS({
-  "node_modules/crypto-js/sha512.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha512.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_x64_core());
@@ -24309,9 +24454,9 @@ var require_sha512 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha384.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha384.js
 var require_sha384 = __commonJS({
-  "node_modules/crypto-js/sha384.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha384.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_x64_core(), require_sha512());
@@ -24355,9 +24500,9 @@ var require_sha384 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/sha3.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha3.js
 var require_sha3 = __commonJS({
-  "node_modules/crypto-js/sha3.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/sha3.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_x64_core());
@@ -24557,9 +24702,9 @@ var require_sha3 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/ripemd160.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/ripemd160.js
 var require_ripemd160 = __commonJS({
-  "node_modules/crypto-js/ripemd160.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/ripemd160.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -25028,9 +25173,9 @@ var require_ripemd160 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/hmac.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/hmac.js
 var require_hmac = __commonJS({
-  "node_modules/crypto-js/hmac.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/hmac.js"(exports, module) {
     (function(root, factory) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core());
@@ -25135,9 +25280,9 @@ var require_hmac = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pbkdf2.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pbkdf2.js
 var require_pbkdf2 = __commonJS({
-  "node_modules/crypto-js/pbkdf2.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pbkdf2.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_sha256(), require_hmac());
@@ -25233,9 +25378,9 @@ var require_pbkdf2 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/evpkdf.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/evpkdf.js
 var require_evpkdf = __commonJS({
-  "node_modules/crypto-js/evpkdf.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/evpkdf.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_sha1(), require_hmac());
@@ -25324,9 +25469,9 @@ var require_evpkdf = __commonJS({
   }
 });
 
-// node_modules/crypto-js/cipher-core.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/cipher-core.js
 var require_cipher_core = __commonJS({
-  "node_modules/crypto-js/cipher-core.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/cipher-core.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_evpkdf());
@@ -25968,9 +26113,9 @@ var require_cipher_core = __commonJS({
   }
 });
 
-// node_modules/crypto-js/mode-cfb.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-cfb.js
 var require_mode_cfb = __commonJS({
-  "node_modules/crypto-js/mode-cfb.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-cfb.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26020,9 +26165,9 @@ var require_mode_cfb = __commonJS({
   }
 });
 
-// node_modules/crypto-js/mode-ctr.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ctr.js
 var require_mode_ctr = __commonJS({
-  "node_modules/crypto-js/mode-ctr.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ctr.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26060,9 +26205,9 @@ var require_mode_ctr = __commonJS({
   }
 });
 
-// node_modules/crypto-js/mode-ctr-gladman.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ctr-gladman.js
 var require_mode_ctr_gladman = __commonJS({
-  "node_modules/crypto-js/mode-ctr-gladman.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ctr-gladman.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26135,9 +26280,9 @@ var require_mode_ctr_gladman = __commonJS({
   }
 });
 
-// node_modules/crypto-js/mode-ofb.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ofb.js
 var require_mode_ofb = __commonJS({
-  "node_modules/crypto-js/mode-ofb.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ofb.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26173,9 +26318,9 @@ var require_mode_ofb = __commonJS({
   }
 });
 
-// node_modules/crypto-js/mode-ecb.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ecb.js
 var require_mode_ecb = __commonJS({
-  "node_modules/crypto-js/mode-ecb.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/mode-ecb.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26204,9 +26349,9 @@ var require_mode_ecb = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pad-ansix923.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-ansix923.js
 var require_pad_ansix923 = __commonJS({
-  "node_modules/crypto-js/pad-ansix923.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-ansix923.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26236,9 +26381,9 @@ var require_pad_ansix923 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pad-iso10126.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-iso10126.js
 var require_pad_iso10126 = __commonJS({
-  "node_modules/crypto-js/pad-iso10126.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-iso10126.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26264,9 +26409,9 @@ var require_pad_iso10126 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pad-iso97971.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-iso97971.js
 var require_pad_iso97971 = __commonJS({
-  "node_modules/crypto-js/pad-iso97971.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-iso97971.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26291,9 +26436,9 @@ var require_pad_iso97971 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pad-zeropadding.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-zeropadding.js
 var require_pad_zeropadding = __commonJS({
-  "node_modules/crypto-js/pad-zeropadding.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-zeropadding.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26325,9 +26470,9 @@ var require_pad_zeropadding = __commonJS({
   }
 });
 
-// node_modules/crypto-js/pad-nopadding.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-nopadding.js
 var require_pad_nopadding = __commonJS({
-  "node_modules/crypto-js/pad-nopadding.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/pad-nopadding.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26348,9 +26493,9 @@ var require_pad_nopadding = __commonJS({
   }
 });
 
-// node_modules/crypto-js/format-hex.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/format-hex.js
 var require_format_hex = __commonJS({
-  "node_modules/crypto-js/format-hex.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/format-hex.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_cipher_core());
@@ -26408,9 +26553,9 @@ var require_format_hex = __commonJS({
   }
 });
 
-// node_modules/crypto-js/aes.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/aes.js
 var require_aes = __commonJS({
-  "node_modules/crypto-js/aes.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/aes.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -26562,9 +26707,9 @@ var require_aes = __commonJS({
   }
 });
 
-// node_modules/crypto-js/tripledes.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/tripledes.js
 var require_tripledes = __commonJS({
-  "node_modules/crypto-js/tripledes.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/tripledes.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -27343,9 +27488,9 @@ var require_tripledes = __commonJS({
   }
 });
 
-// node_modules/crypto-js/rc4.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rc4.js
 var require_rc4 = __commonJS({
-  "node_modules/crypto-js/rc4.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rc4.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -27426,9 +27571,9 @@ var require_rc4 = __commonJS({
   }
 });
 
-// node_modules/crypto-js/rabbit.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rabbit.js
 var require_rabbit = __commonJS({
-  "node_modules/crypto-js/rabbit.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rabbit.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -27555,9 +27700,9 @@ var require_rabbit = __commonJS({
   }
 });
 
-// node_modules/crypto-js/rabbit-legacy.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rabbit-legacy.js
 var require_rabbit_legacy = __commonJS({
-  "node_modules/crypto-js/rabbit-legacy.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/rabbit-legacy.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -27681,9 +27826,9 @@ var require_rabbit_legacy = __commonJS({
   }
 });
 
-// node_modules/crypto-js/blowfish.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/blowfish.js
 var require_blowfish = __commonJS({
-  "node_modules/crypto-js/blowfish.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/blowfish.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_enc_base64(), require_md5(), require_evpkdf(), require_cipher_core());
@@ -28870,9 +29015,9 @@ var require_blowfish = __commonJS({
   }
 });
 
-// node_modules/crypto-js/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/index.js
 var require_crypto_js = __commonJS({
-  "node_modules/crypto-js/index.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/crypto-js/index.js"(exports, module) {
     (function(root, factory, undef) {
       if (typeof exports === "object") {
         module.exports = exports = factory(require_core(), require_x64_core(), require_lib_typedarrays(), require_enc_utf16(), require_enc_base64(), require_enc_base64url(), require_md5(), require_sha1(), require_sha256(), require_sha224(), require_sha512(), require_sha384(), require_sha3(), require_ripemd160(), require_hmac(), require_pbkdf2(), require_evpkdf(), require_cipher_core(), require_mode_cfb(), require_mode_ctr(), require_mode_ctr_gladman(), require_mode_ofb(), require_mode_ecb(), require_pad_ansix923(), require_pad_iso10126(), require_pad_iso97971(), require_pad_zeropadding(), require_pad_nopadding(), require_format_hex(), require_aes(), require_tripledes(), require_rc4(), require_rabbit(), require_rabbit_legacy(), require_blowfish());
@@ -28887,43 +29032,43 @@ var require_crypto_js = __commonJS({
   }
 });
 
-// node_modules/uuid/dist-node/max.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/max.js
 var max_default;
 var init_max = __esm({
-  "node_modules/uuid/dist-node/max.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/max.js"() {
     max_default = "ffffffff-ffff-ffff-ffff-ffffffffffff";
   }
 });
 
-// node_modules/uuid/dist-node/nil.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/nil.js
 var nil_default;
 var init_nil = __esm({
-  "node_modules/uuid/dist-node/nil.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/nil.js"() {
     nil_default = "00000000-0000-0000-0000-000000000000";
   }
 });
 
-// node_modules/uuid/dist-node/regex.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/regex.js
 var regex_default;
 var init_regex = __esm({
-  "node_modules/uuid/dist-node/regex.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/regex.js"() {
     regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
   }
 });
 
-// node_modules/uuid/dist-node/validate.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/validate.js
 function validate(uuid) {
   return typeof uuid === "string" && regex_default.test(uuid);
 }
 var validate_default;
 var init_validate = __esm({
-  "node_modules/uuid/dist-node/validate.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/validate.js"() {
     init_regex();
     validate_default = validate;
   }
 });
 
-// node_modules/uuid/dist-node/parse.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/parse.js
 function parse(uuid) {
   if (!validate_default(uuid)) {
     throw TypeError("Invalid UUID");
@@ -28933,13 +29078,13 @@ function parse(uuid) {
 }
 var parse_default;
 var init_parse = __esm({
-  "node_modules/uuid/dist-node/parse.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/parse.js"() {
     init_validate();
     parse_default = parse;
   }
 });
 
-// node_modules/uuid/dist-node/stringify.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/stringify.js
 function unsafeStringify(arr, offset = 0) {
   return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
 }
@@ -28952,7 +29097,7 @@ function stringify(arr, offset = 0) {
 }
 var byteToHex, stringify_default;
 var init_stringify = __esm({
-  "node_modules/uuid/dist-node/stringify.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/stringify.js"() {
     init_validate();
     byteToHex = [];
     for (let i = 0; i < 256; ++i) {
@@ -28962,18 +29107,18 @@ var init_stringify = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/rng.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/rng.js
 function rng() {
   return crypto.getRandomValues(rnds8);
 }
 var rnds8;
 var init_rng = __esm({
-  "node_modules/uuid/dist-node/rng.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/rng.js"() {
     rnds8 = new Uint8Array(16);
   }
 });
 
-// node_modules/uuid/dist-node/v1.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v1.js
 function v1(options, buf, offset) {
   let bytes;
   const isV6 = options?._v6 ?? false;
@@ -29055,7 +29200,7 @@ function v1Bytes(rnds, msecs, nsecs, clockseq, node, buf, offset = 0) {
 }
 var _state, v1_default;
 var init_v1 = __esm({
-  "node_modules/uuid/dist-node/v1.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v1.js"() {
     init_rng();
     init_stringify();
     _state = {};
@@ -29063,7 +29208,7 @@ var init_v1 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/v1ToV6.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v1ToV6.js
 function v1ToV6(uuid) {
   const v1Bytes2 = typeof uuid === "string" ? parse_default(uuid) : uuid;
   const v6Bytes = _v1ToV6(v1Bytes2);
@@ -29073,13 +29218,13 @@ function _v1ToV6(v1Bytes2) {
   return Uint8Array.of((v1Bytes2[6] & 15) << 4 | v1Bytes2[7] >> 4 & 15, (v1Bytes2[7] & 15) << 4 | (v1Bytes2[4] & 240) >> 4, (v1Bytes2[4] & 15) << 4 | (v1Bytes2[5] & 240) >> 4, (v1Bytes2[5] & 15) << 4 | (v1Bytes2[0] & 240) >> 4, (v1Bytes2[0] & 15) << 4 | (v1Bytes2[1] & 240) >> 4, (v1Bytes2[1] & 15) << 4 | (v1Bytes2[2] & 240) >> 4, 96 | v1Bytes2[2] & 15, v1Bytes2[3], v1Bytes2[8], v1Bytes2[9], v1Bytes2[10], v1Bytes2[11], v1Bytes2[12], v1Bytes2[13], v1Bytes2[14], v1Bytes2[15]);
 }
 var init_v1ToV6 = __esm({
-  "node_modules/uuid/dist-node/v1ToV6.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v1ToV6.js"() {
     init_parse();
     init_stringify();
   }
 });
 
-// node_modules/uuid/dist-node/md5.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/md5.js
 import { createHash } from "node:crypto";
 function md5(bytes) {
   if (Array.isArray(bytes)) {
@@ -29091,12 +29236,12 @@ function md5(bytes) {
 }
 var md5_default;
 var init_md5 = __esm({
-  "node_modules/uuid/dist-node/md5.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/md5.js"() {
     md5_default = md5;
   }
 });
 
-// node_modules/uuid/dist-node/v35.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v35.js
 function stringToBytes(str3) {
   str3 = unescape(encodeURIComponent(str3));
   const bytes = new Uint8Array(str3.length);
@@ -29105,7 +29250,7 @@ function stringToBytes(str3) {
   }
   return bytes;
 }
-function v35(version2, hash, value, namespace, buf, offset) {
+function v35(version3, hash, value, namespace, buf, offset) {
   const valueBytes = typeof value === "string" ? stringToBytes(value) : value;
   const namespaceBytes = typeof namespace === "string" ? parse_default(namespace) : namespace;
   if (typeof namespace === "string") {
@@ -29118,7 +29263,7 @@ function v35(version2, hash, value, namespace, buf, offset) {
   bytes.set(namespaceBytes);
   bytes.set(valueBytes, namespaceBytes.length);
   bytes = hash(bytes);
-  bytes[6] = bytes[6] & 15 | version2;
+  bytes[6] = bytes[6] & 15 | version3;
   bytes[8] = bytes[8] & 63 | 128;
   if (buf) {
     offset ??= 0;
@@ -29134,7 +29279,7 @@ function v35(version2, hash, value, namespace, buf, offset) {
 }
 var DNS, URL2;
 var init_v35 = __esm({
-  "node_modules/uuid/dist-node/v35.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v35.js"() {
     init_parse();
     init_stringify();
     DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
@@ -29142,13 +29287,13 @@ var init_v35 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/v3.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v3.js
 function v3(value, namespace, buf, offset) {
   return v35(48, md5_default, value, namespace, buf, offset);
 }
 var v3_default;
 var init_v3 = __esm({
-  "node_modules/uuid/dist-node/v3.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v3.js"() {
     init_md5();
     init_v35();
     v3.DNS = DNS;
@@ -29157,7 +29302,7 @@ var init_v3 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/v4.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v4.js
 function v4(options, buf, offset) {
   if (!buf && !options && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -29186,14 +29331,14 @@ function _v4(options, buf, offset) {
 }
 var v4_default;
 var init_v4 = __esm({
-  "node_modules/uuid/dist-node/v4.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v4.js"() {
     init_rng();
     init_stringify();
     v4_default = v4;
   }
 });
 
-// node_modules/uuid/dist-node/sha1.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/sha1.js
 import { createHash as createHash2 } from "node:crypto";
 function sha1(bytes) {
   if (Array.isArray(bytes)) {
@@ -29205,18 +29350,18 @@ function sha1(bytes) {
 }
 var sha1_default;
 var init_sha1 = __esm({
-  "node_modules/uuid/dist-node/sha1.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/sha1.js"() {
     sha1_default = sha1;
   }
 });
 
-// node_modules/uuid/dist-node/v5.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v5.js
 function v5(value, namespace, buf, offset) {
   return v35(80, sha1_default, value, namespace, buf, offset);
 }
 var v5_default;
 var init_v5 = __esm({
-  "node_modules/uuid/dist-node/v5.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v5.js"() {
     init_sha1();
     init_v35();
     v5.DNS = DNS;
@@ -29225,7 +29370,7 @@ var init_v5 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/v6.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v6.js
 function v6(options, buf, offset) {
   options ??= {};
   offset ??= 0;
@@ -29244,7 +29389,7 @@ function v6(options, buf, offset) {
 }
 var v6_default;
 var init_v6 = __esm({
-  "node_modules/uuid/dist-node/v6.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v6.js"() {
     init_stringify();
     init_v1();
     init_v1ToV6();
@@ -29252,7 +29397,7 @@ var init_v6 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/v6ToV1.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v6ToV1.js
 function v6ToV1(uuid) {
   const v6Bytes = typeof uuid === "string" ? parse_default(uuid) : uuid;
   const v1Bytes2 = _v6ToV1(v6Bytes);
@@ -29262,13 +29407,13 @@ function _v6ToV1(v6Bytes) {
   return Uint8Array.of((v6Bytes[3] & 15) << 4 | v6Bytes[4] >> 4 & 15, (v6Bytes[4] & 15) << 4 | (v6Bytes[5] & 240) >> 4, (v6Bytes[5] & 15) << 4 | v6Bytes[6] & 15, v6Bytes[7], (v6Bytes[1] & 15) << 4 | (v6Bytes[2] & 240) >> 4, (v6Bytes[2] & 15) << 4 | (v6Bytes[3] & 240) >> 4, 16 | (v6Bytes[0] & 240) >> 4, (v6Bytes[0] & 15) << 4 | (v6Bytes[1] & 240) >> 4, v6Bytes[8], v6Bytes[9], v6Bytes[10], v6Bytes[11], v6Bytes[12], v6Bytes[13], v6Bytes[14], v6Bytes[15]);
 }
 var init_v6ToV1 = __esm({
-  "node_modules/uuid/dist-node/v6ToV1.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v6ToV1.js"() {
     init_parse();
     init_stringify();
   }
 });
 
-// node_modules/uuid/dist-node/v7.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v7.js
 function v7(options, buf, offset) {
   let bytes;
   if (options) {
@@ -29332,7 +29477,7 @@ function v7Sequence(rnds) {
 }
 var _state2, v7_default;
 var init_v7 = __esm({
-  "node_modules/uuid/dist-node/v7.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/v7.js"() {
     init_rng();
     init_stringify();
     _state2 = {};
@@ -29340,7 +29485,7 @@ var init_v7 = __esm({
   }
 });
 
-// node_modules/uuid/dist-node/version.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/version.js
 function version(uuid) {
   if (!validate_default(uuid)) {
     throw TypeError("Invalid UUID");
@@ -29349,13 +29494,13 @@ function version(uuid) {
 }
 var version_default;
 var init_version = __esm({
-  "node_modules/uuid/dist-node/version.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/version.js"() {
     init_validate();
     version_default = version;
   }
 });
 
-// node_modules/uuid/dist-node/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/index.js
 var dist_node_exports = {};
 __export(dist_node_exports, {
   MAX: () => max_default,
@@ -29374,7 +29519,7 @@ __export(dist_node_exports, {
   version: () => version_default
 });
 var init_dist_node = __esm({
-  "node_modules/uuid/dist-node/index.js"() {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/uuid/dist-node/index.js"() {
     init_max();
     init_nil();
     init_parse();
@@ -29392,9 +29537,9 @@ var init_dist_node = __esm({
   }
 });
 
-// node_modules/ajv/dist/compile/codegen/code.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -29546,9 +29691,9 @@ var require_code = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/codegen/scope.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -29691,9 +29836,9 @@ var require_scope = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/codegen/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -30411,9 +30556,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/util.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "node_modules/ajv/dist/compile/util.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -30578,9 +30723,9 @@ var require_util = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/names.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "node_modules/ajv/dist/compile/names.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -30617,9 +30762,9 @@ var require_names = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/errors.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/errors.js
 var require_errors2 = __commonJS({
-  "node_modules/ajv/dist/compile/errors.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -30739,9 +30884,9 @@ var require_errors2 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/boolSchema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -30790,9 +30935,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/rules.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "node_modules/ajv/dist/compile/rules.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -30821,9 +30966,9 @@ var require_rules = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/applicability.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -30844,9 +30989,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/dataType.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -31028,9 +31173,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/defaults.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -31065,9 +31210,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/code.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -31198,9 +31343,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/keyword.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -31316,9 +31461,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/subschema.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -31399,9 +31544,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// node_modules/fast-deep-equal/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "node_modules/fast-deep-equal/index.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
       if (a === b) return true;
@@ -31434,9 +31579,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// node_modules/json-schema-traverse/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "node_modules/json-schema-traverse/index.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/json-schema-traverse/index.js"(exports, module) {
     "use strict";
     var traverse = module.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -31522,9 +31667,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/resolve.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -31678,9 +31823,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/validate/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -32186,9 +32331,9 @@ var require_validate = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/runtime/validation_error.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -32202,9 +32347,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/ref_error.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -32219,9 +32364,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/compile/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "node_modules/ajv/dist/compile/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -32443,9 +32588,9 @@ var require_compile = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/refs/data.json
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "node_modules/ajv/dist/refs/data.json"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/refs/data.json"(exports, module) {
     module.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -32462,9 +32607,9 @@ var require_data = __commonJS({
   }
 });
 
-// node_modules/fast-uri/lib/utils.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "node_modules/fast-uri/lib/utils.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/lib/utils.js"(exports, module) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -32996,9 +33141,9 @@ var require_utils = __commonJS({
   }
 });
 
-// node_modules/fast-uri/lib/schemes.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "node_modules/fast-uri/lib/schemes.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/lib/schemes.js"(exports, module) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /^([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-./:;=@]|%[\da-f]{2})+)$/iu;
@@ -33207,9 +33352,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// node_modules/fast-uri/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "node_modules/fast-uri/index.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, removeDotSegmentsRelative, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, serializePathEncoding, normalizeQueryFragmentEncoding, encodeQuery, encodeFragment, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -33637,9 +33782,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/runtime/uri.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -33648,9 +33793,9 @@ var require_uri = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/core.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/core.js
 var require_core2 = __commonJS({
-  "node_modules/ajv/dist/core.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -34259,9 +34404,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/core/id.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -34274,9 +34419,9 @@ var require_id = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/core/ref.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -34396,9 +34541,9 @@ var require_ref = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/core/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core3 = __commonJS({
-  "node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -34417,9 +34562,9 @@ var require_core3 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34449,9 +34594,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34477,9 +34622,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/runtime/ucs2length.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str3) {
@@ -34503,9 +34648,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34535,9 +34680,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/pattern.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -34572,9 +34717,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34601,9 +34746,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/required.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -34683,9 +34828,9 @@ var require_required = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34712,9 +34857,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/runtime/equal.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -34723,9 +34868,9 @@ var require_equal = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -34790,9 +34935,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/const.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34819,9 +34964,9 @@ var require_const = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/enum.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -34868,9 +35013,9 @@ var require_enum = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/validation/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -34906,9 +35051,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -34959,9 +35104,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/items.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -35016,9 +35161,9 @@ var require_items = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -35033,9 +35178,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35068,9 +35213,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/contains.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35162,9 +35307,9 @@ var require_contains = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -35256,9 +35401,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35299,9 +35444,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -35405,9 +35550,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/properties.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -35463,9 +35608,9 @@ var require_properties = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -35537,9 +35682,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/not.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -35568,9 +35713,9 @@ var require_not = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -35585,9 +35730,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35643,9 +35788,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -35670,9 +35815,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/if.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35739,9 +35884,9 @@ var require_if = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -35757,9 +35902,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/applicator/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -35805,9 +35950,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/format/format.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -35895,9 +36040,9 @@ var require_format = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/format/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -35906,9 +36051,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/metadata.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -35929,9 +36074,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/draft7.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core3();
@@ -35951,9 +36096,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/discriminator/types.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -35965,9 +36110,9 @@ var require_types = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/vocabularies/discriminator/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -36070,9 +36215,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/refs/json-schema-draft-07.json
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
     module.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -36227,9 +36372,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// node_modules/ajv/dist/ajv.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "node_modules/ajv/dist/ajv.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/ajv/dist/ajv.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -36297,9 +36442,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/utils.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/utils.js
 var require_utils2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/utils.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/utils.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.extend = extend;
@@ -36396,9 +36541,9 @@ var require_utils2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/exception.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/exception.js
 var require_exception = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/exception.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/exception.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var errorProps = ["description", "fileName", "lineNumber", "endLineNumber", "message", "name", "number", "stack"];
@@ -36447,9 +36592,9 @@ var require_exception = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/block-helper-missing.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/block-helper-missing.js
 var require_block_helper_missing = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/block-helper-missing.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/block-helper-missing.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var _utils = require_utils2();
@@ -36483,9 +36628,9 @@ var require_block_helper_missing = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/each.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/each.js
 var require_each = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/each.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/each.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -36582,9 +36727,9 @@ var require_each = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/helper-missing.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/helper-missing.js
 var require_helper_missing = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/helper-missing.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/helper-missing.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -36605,9 +36750,9 @@ var require_helper_missing = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/if.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/if.js
 var require_if2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/if.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/if.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -36645,9 +36790,9 @@ var require_if2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/log.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/log.js
 var require_log2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/log.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/log.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     exports["default"] = function(instance) {
@@ -36670,9 +36815,9 @@ var require_log2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/lookup.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/lookup.js
 var require_lookup = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/lookup.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/lookup.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     exports["default"] = function(instance) {
@@ -36687,9 +36832,9 @@ var require_lookup = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers/with.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/with.js
 var require_with = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers/with.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers/with.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -36726,9 +36871,9 @@ var require_with = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/helpers.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers.js
 var require_helpers = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/helpers.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/helpers.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.registerDefaultHelpers = registerDefaultHelpers;
@@ -36770,9 +36915,9 @@ var require_helpers = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/decorators/inline.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/decorators/inline.js
 var require_inline = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/decorators/inline.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/decorators/inline.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var _utils = require_utils2();
@@ -36797,9 +36942,9 @@ var require_inline = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/decorators.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/decorators.js
 var require_decorators = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/decorators.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/decorators.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.registerDefaultDecorators = registerDefaultDecorators;
@@ -36814,9 +36959,9 @@ var require_decorators = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/logger.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/logger.js
 var require_logger = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/logger.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/logger.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var _utils = require_utils2();
@@ -36855,9 +37000,9 @@ var require_logger = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/internal/proto-access.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/internal/proto-access.js
 var require_proto_access = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/internal/proto-access.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/internal/proto-access.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.createProtoAccessControl = createProtoAccessControl;
@@ -36927,9 +37072,9 @@ var require_proto_access = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/base.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/base.js
 var require_base = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/base.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/base.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.HandlebarsEnvironment = HandlebarsEnvironment;
@@ -37028,9 +37173,9 @@ var require_base = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/safe-string.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/safe-string.js
 var require_safe_string = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/safe-string.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/safe-string.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function SafeString(string) {
@@ -37044,9 +37189,9 @@ var require_safe_string = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/internal/wrapHelper.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/internal/wrapHelper.js
 var require_wrapHelper = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/internal/wrapHelper.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/internal/wrapHelper.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.wrapHelper = wrapHelper;
@@ -37064,9 +37209,9 @@ var require_wrapHelper = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/runtime.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/runtime.js
 var require_runtime = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/runtime.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/runtime.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.checkRevision = checkRevision;
@@ -37385,9 +37530,9 @@ var require_runtime = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/no-conflict.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/no-conflict.js
 var require_no_conflict = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/no-conflict.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/no-conflict.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     exports["default"] = function(Handlebars) {
@@ -37411,9 +37556,9 @@ var require_no_conflict = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars.runtime.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars.runtime.js
 var require_handlebars_runtime = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars.runtime.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars.runtime.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -37467,9 +37612,9 @@ var require_handlebars_runtime = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/ast.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/ast.js
 var require_ast = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/ast.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/ast.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var AST = {
@@ -37496,9 +37641,9 @@ var require_ast = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/parser.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/parser.js
 var require_parser2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/parser.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/parser.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     var handlebars = (function() {
@@ -38206,9 +38351,9 @@ var require_parser2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/node-types.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/node-types.js
 var require_node_types = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/node-types.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/node-types.js"(exports) {
     "use strict";
     exports.__esModule = true;
     var NODE_TYPES = ["Program", "BlockStatement", "DecoratorBlock", "PartialStatement", "PartialBlockStatement", "Decorator", "MustacheStatement", "ContentStatement", "CommentStatement", "SubExpression", "PathExpression", "StringLiteral", "NumberLiteral", "BooleanLiteral", "UndefinedLiteral", "NullLiteral", "Hash", "HashPair"];
@@ -38216,9 +38361,9 @@ var require_node_types = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/visitor.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/visitor.js
 var require_visitor = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/visitor.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/visitor.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -38342,9 +38487,9 @@ var require_visitor = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/whitespace-control.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/whitespace-control.js
 var require_whitespace_control = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/whitespace-control.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/whitespace-control.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -38493,9 +38638,9 @@ var require_whitespace_control = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/helpers.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/helpers.js
 var require_helpers2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/helpers.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/helpers.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.SourceLocation = SourceLocation;
@@ -38549,25 +38694,25 @@ var require_helpers2 = __commonJS({
     }
     function preparePath(data, parts, loc) {
       loc = this.locInfo(loc);
-      var original = data ? "@" : "", dig = [], depth = 0;
+      var original = data ? "@" : "", dig2 = [], depth = 0;
       for (var i = 0, l = parts.length; i < l; i++) {
         var part = parts[i].part, isLiteral = parts[i].original !== part;
         original += (parts[i].separator || "") + part;
         if (!isLiteral && (part === ".." || part === "." || part === "this")) {
-          if (dig.length > 0) {
+          if (dig2.length > 0) {
             throw new _exception2["default"]("Invalid path: " + original, { loc });
           } else if (part === "..") {
             depth++;
           }
         } else {
-          dig.push(part);
+          dig2.push(part);
         }
       }
       return {
         type: "PathExpression",
         data,
         depth,
-        parts: dig,
+        parts: dig2,
         original,
         loc
       };
@@ -38681,9 +38826,9 @@ var require_helpers2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/base.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/base.js
 var require_base2 = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/base.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/base.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.parseWithoutProcessing = parseWithoutProcessing;
@@ -38734,9 +38879,9 @@ var require_base2 = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/compiler.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/compiler.js
 var require_compiler = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/compiler.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/compiler.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.Compiler = Compiler;
@@ -39223,9 +39368,9 @@ var require_compiler = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/base64.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/base64.js
 var require_base64 = __commonJS({
-  "node_modules/source-map/lib/base64.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/base64.js"(exports) {
     var intToCharMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".split("");
     exports.encode = function(number) {
       if (0 <= number && number < intToCharMap.length) {
@@ -39264,9 +39409,9 @@ var require_base64 = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/base64-vlq.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/base64-vlq.js
 var require_base64_vlq = __commonJS({
-  "node_modules/source-map/lib/base64-vlq.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/base64-vlq.js"(exports) {
     var base64 = require_base64();
     var VLQ_BASE_SHIFT = 5;
     var VLQ_BASE = 1 << VLQ_BASE_SHIFT;
@@ -39318,9 +39463,9 @@ var require_base64_vlq = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/util.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/util.js
 var require_util2 = __commonJS({
-  "node_modules/source-map/lib/util.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/util.js"(exports) {
     function getArg(aArgs, aName, aDefaultValue) {
       if (aName in aArgs) {
         return aArgs[aName];
@@ -39619,9 +39764,9 @@ var require_util2 = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/array-set.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/array-set.js
 var require_array_set = __commonJS({
-  "node_modules/source-map/lib/array-set.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/array-set.js"(exports) {
     var util = require_util2();
     var has2 = Object.prototype.hasOwnProperty;
     var hasNativeMap = typeof Map !== "undefined";
@@ -39689,9 +39834,9 @@ var require_array_set = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/mapping-list.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/mapping-list.js
 var require_mapping_list = __commonJS({
-  "node_modules/source-map/lib/mapping-list.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/mapping-list.js"(exports) {
     var util = require_util2();
     function generatedPositionAfter(mappingA, mappingB) {
       var lineA = mappingA.generatedLine;
@@ -39728,9 +39873,9 @@ var require_mapping_list = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/source-map-generator.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-map-generator.js
 var require_source_map_generator = __commonJS({
-  "node_modules/source-map/lib/source-map-generator.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-map-generator.js"(exports) {
     var base64VLQ = require_base64_vlq();
     var util = require_util2();
     var ArraySet = require_array_set().ArraySet;
@@ -40004,9 +40149,9 @@ var require_source_map_generator = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/binary-search.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/binary-search.js
 var require_binary_search = __commonJS({
-  "node_modules/source-map/lib/binary-search.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/binary-search.js"(exports) {
     exports.GREATEST_LOWER_BOUND = 1;
     exports.LEAST_UPPER_BOUND = 2;
     function recursiveSearch(aLow, aHigh, aNeedle, aHaystack, aCompare, aBias) {
@@ -40060,9 +40205,9 @@ var require_binary_search = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/quick-sort.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/quick-sort.js
 var require_quick_sort = __commonJS({
-  "node_modules/source-map/lib/quick-sort.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/quick-sort.js"(exports) {
     function swap(ary, x, y) {
       var temp = ary[x];
       ary[x] = ary[y];
@@ -40095,9 +40240,9 @@ var require_quick_sort = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/source-map-consumer.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-map-consumer.js
 var require_source_map_consumer = __commonJS({
-  "node_modules/source-map/lib/source-map-consumer.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-map-consumer.js"(exports) {
     var util = require_util2();
     var binarySearch = require_binary_search();
     var ArraySet = require_array_set().ArraySet;
@@ -40227,15 +40372,15 @@ var require_source_map_consumer = __commonJS({
       if (typeof aSourceMap === "string") {
         sourceMap = util.parseSourceMapInput(aSourceMap);
       }
-      var version2 = util.getArg(sourceMap, "version");
+      var version3 = util.getArg(sourceMap, "version");
       var sources = util.getArg(sourceMap, "sources");
       var names = util.getArg(sourceMap, "names", []);
       var sourceRoot = util.getArg(sourceMap, "sourceRoot", null);
       var sourcesContent = util.getArg(sourceMap, "sourcesContent", null);
       var mappings = util.getArg(sourceMap, "mappings");
       var file = util.getArg(sourceMap, "file", null);
-      if (version2 != this._version) {
-        throw new Error("Unsupported version: " + version2);
+      if (version3 != this._version) {
+        throw new Error("Unsupported version: " + version3);
       }
       if (sourceRoot) {
         sourceRoot = util.normalize(sourceRoot);
@@ -40540,10 +40685,10 @@ var require_source_map_consumer = __commonJS({
       if (typeof aSourceMap === "string") {
         sourceMap = util.parseSourceMapInput(aSourceMap);
       }
-      var version2 = util.getArg(sourceMap, "version");
+      var version3 = util.getArg(sourceMap, "version");
       var sections = util.getArg(sourceMap, "sections");
-      if (version2 != this._version) {
-        throw new Error("Unsupported version: " + version2);
+      if (version3 != this._version) {
+        throw new Error("Unsupported version: " + version3);
       }
       this._sources = new ArraySet();
       this._names = new ArraySet();
@@ -40696,9 +40841,9 @@ var require_source_map_consumer = __commonJS({
   }
 });
 
-// node_modules/source-map/lib/source-node.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-node.js
 var require_source_node = __commonJS({
-  "node_modules/source-map/lib/source-node.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/lib/source-node.js"(exports) {
     var SourceMapGenerator = require_source_map_generator().SourceMapGenerator;
     var util = require_util2();
     var REGEX_NEWLINE = /(\r?\n)/;
@@ -40961,18 +41106,18 @@ var require_source_node = __commonJS({
   }
 });
 
-// node_modules/source-map/source-map.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/source-map.js
 var require_source_map = __commonJS({
-  "node_modules/source-map/source-map.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/source-map/source-map.js"(exports) {
     exports.SourceMapGenerator = require_source_map_generator().SourceMapGenerator;
     exports.SourceMapConsumer = require_source_map_consumer().SourceMapConsumer;
     exports.SourceNode = require_source_node().SourceNode;
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/code-gen.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/code-gen.js
 var require_code_gen = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/code-gen.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/code-gen.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.safeJsonLiteral = safeJsonLiteral;
@@ -41121,9 +41266,9 @@ var require_code_gen = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/javascript-compiler.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/javascript-compiler.js
 var require_javascript_compiler = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/javascript-compiler.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/javascript-compiler.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -42043,9 +42188,9 @@ var require_javascript_compiler = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars.js
 var require_handlebars = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars.js"(exports, module) {
     "use strict";
     exports.__esModule = true;
     function _interopRequireDefault(obj) {
@@ -42090,9 +42235,9 @@ var require_handlebars = __commonJS({
   }
 });
 
-// node_modules/handlebars/dist/cjs/handlebars/compiler/printer.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/printer.js
 var require_printer = __commonJS({
-  "node_modules/handlebars/dist/cjs/handlebars/compiler/printer.js"(exports) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/dist/cjs/handlebars/compiler/printer.js"(exports) {
     "use strict";
     exports.__esModule = true;
     exports.print = print;
@@ -42236,9 +42381,9 @@ var require_printer = __commonJS({
   }
 });
 
-// node_modules/handlebars/lib/index.js
+// ../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/lib/index.js
 var require_lib = __commonJS({
-  "node_modules/handlebars/lib/index.js"(exports, module) {
+  "../../../../../../home/ogautam/projects/onelifestack/onelifestack-native-apps/onelifestack-dispatch/node_modules/handlebars/lib/index.js"(exports, module) {
     var handlebars = require_handlebars()["default"];
     var printer = require_printer();
     handlebars.PrintVisitor = printer.PrintVisitor;
@@ -42266,8 +42411,8 @@ __export(scriptLibs_exports, {
 function neededLibs(code) {
   const out = /* @__PURE__ */ new Set();
   for (const m of code.matchAll(/require\(\s*['"`]([\w@/.-]+)['"`]\s*\)/g)) if (LOADERS[m[1]]) out.add(m[1]);
-  if (/\bjsonSchema\s*\(/.test(code)) out.add("ajv");
-  if (/\bvisualizer\s*\.\s*set\s*\(/.test(code)) out.add("handlebars");
+  if (/\bjsonSchema\s*\(|\bresponse\s*\.\s*validate\s*\(/.test(code)) out.add("ajv");
+  if (/\bvisualizer\s*\.\s*set\s*\(|\bdx\s*\.\s*visualize\s*\(/.test(code)) out.add("handlebars");
   if (/\b_\s*\./.test(code)) out.add("lodash");
   return [...out];
 }
@@ -42420,7 +42565,7 @@ function scriptPipeline(o) {
     async beforeSend(req, ctx, out) {
       const before = pmRequestOf(req);
       const { request, skip } = await runPhase("pre", req, ctx, out, before, null);
-      if (skip) throw new SkipRequest("Skipped: a pre-request script called pm.execution.skipRequest().");
+      if (skip) throw new SkipRequest("Skipped: a pre-request script asked to skip it.");
       return applyPmRequest(req, before, request);
     },
     async afterResponse(req, ctx, out) {
@@ -42911,7 +43056,8 @@ function importInsomnia(d) {
 }
 
 // src/core/backup.ts
-var FORMAT = "onelifestack-dispatch";
+var FORMAT = "ogcrafts-dispatch";
+var LEGACY_FORMATS = ["onelifestack-dispatch"];
 function importFile(text) {
   let data;
   try {
@@ -42938,7 +43084,7 @@ async function importFileAsync(text) {
   return importFile(text);
 }
 function importData(data) {
-  if (data?.format === FORMAT) return importDispatch(data);
+  if (data?.format === FORMAT || LEGACY_FORMATS.includes(data?.format)) return importDispatch(data);
   if (isOpenApi(data)) return importOpenApi(data);
   if (isHar(data)) return importHar(data);
   if (isInsomnia(data)) return importInsomnia(data);
@@ -43734,9 +43880,9 @@ async function digestHeader(ch, method, url, user, pass, cnonce = Math.random().
   if (ch.opaque) parts.push(`opaque="${ch.opaque}"`);
   return `Digest ${parts.join(", ")}`;
 }
-function fillAuth(a, fill) {
+function fillAuth(a, fill2) {
   const out = { ...a };
-  for (const k of Object.keys(out)) if (typeof out[k] === "string") out[k] = fill(out[k]);
+  for (const k of Object.keys(out)) if (typeof out[k] === "string") out[k] = fill2(out[k]);
   return out;
 }
 async function tokenRequest(a, params, transport, opts) {
@@ -43894,10 +44040,11 @@ var nodeLauncher = {
       }
     };
     let buf = "";
+    const startMs = Number(process.env.DISPATCH_BROWSER_START_MS) || 15e3;
     const t = setTimeout(() => {
       void cleanup();
       reject(new Error("The browser didn\u2019t start in time."));
-    }, 15e3);
+    }, startMs);
     p.stderr.on("data", (d) => {
       buf += d.toString();
       const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
@@ -43991,9 +44138,10 @@ function fillMockBody(body, params) {
 }
 
 // src/cli/mcpServer.ts
-init_runtime();
 import { createInterface } from "node:readline";
-init_types();
+
+// src/core/mcpHandler.ts
+init_runtime();
 
 // src/core/flows.ts
 init_types();
@@ -44143,7 +44291,7 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
   let environment = w.environment ? structuredClone(w.environment) : null;
   let last = null;
   let steps = 0;
-  const fill = (s) => interpolate(s, scopeFor({ ...prepareContext(ctx(null), { folderId: null }), locals }));
+  const fill2 = (s) => interpolate(s, scopeFor({ ...prepareContext(ctx(null), { folderId: null }), locals }));
   const next = (n, port) => f.edges.filter((e) => e.from === n.id && e.port === port).map((e) => f.nodes.find((x) => x.id === e.to)).filter(Boolean);
   class Stop extends Error {
   }
@@ -44156,7 +44304,7 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
       request: { name: label, url: "", method: "GET", headers: [], body: { mode: "none", raw: "" } },
       vars: { globals: Object.fromEntries(run.globals.filter((v) => v.enabled).map((v) => [v.key, v.value])), collection: {}, environment: Object.fromEntries((environment?.variables ?? []).filter((v) => v.enabled).map((v) => [v.key, v.value])), data: {}, locals: Object.fromEntries(locals) },
       info: { requestName: label, requestId: "", iteration: 0, iterationCount: 1 }
-    }, { sendRequest: () => Promise.reject(new Error("pm.sendRequest isn\u2019t available in flow scripts; use a Request block.")) });
+    }, { sendRequest: () => Promise.reject(new Error("dx.send isn\u2019t available in flow scripts; use a Request block.")) });
     run.logs.push(...r.logs);
     if (r.error) throw new Error(r.error);
     for (const [k, v] of Object.entries(r.vars.locals)) locals.set(k, v);
@@ -44206,9 +44354,10 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
             break;
           case "if": {
             const expr = (n.config.expression ?? "").trim() || "false";
-            await script(`const response = pm.response ? { code: pm.response.code, status: pm.response.status, headers: pm.response.headers.toObject(), body: pm.response.text(), json: (() => { try { return pm.response.json() } catch { return undefined } })() } : null
-            const vars = pm.variables.toObject()
-            pm.variables.set('__flowIf', (${expr}) ? 'true' : 'false')`, n.label);
+            await script(`const r = dx.response
+            const response = r ? { code: r.status, status: r.statusText, headers: r.headers.all(), body: r.text(), json: (() => { try { return r.json() } catch { return undefined } })() } : null
+            const vars = dx.vars.all()
+            dx.vars.set('__flowIf', (${expr}) ? 'true' : 'false')`, n.label);
             port = locals.get("__flowIf") === "true" ? "true" : "false";
             locals.delete("__flowIf");
             finish("ok", port, `${expr} \u2192 ${port}`);
@@ -44221,7 +44370,7 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
               const data = last ? parseJson(last.body) : void 0;
               const hit = data === void 0 ? [] : queryJson(data, value.trim());
               value = hit.length === 0 ? "" : typeof hit[0] === "string" ? hit[0] : JSON.stringify(hit[0]);
-            } else value = fill(value);
+            } else value = fill2(value);
             if (n.config.scope === "environment" && environment) {
               const vars = environment.variables.some((v) => v.key === name) ? environment.variables.map((v) => v.key === name ? { ...v, value } : v) : [...environment.variables, { id: uid(), key: name, value, enabled: true }];
               environment = { ...environment, variables: vars };
@@ -44230,14 +44379,14 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
             break;
           }
           case "delay": {
-            const ms = Math.min(6e5, Number(fill(n.config.ms ?? "0")) || 0);
+            const ms = Math.min(6e5, Number(fill2(n.config.ms ?? "0")) || 0);
             await sleep(ms);
             finish("ok", port, `${ms} ms`);
             break;
           }
           case "forEach": {
             let items = [];
-            if (n.config.source === "data") items = parseDataFile(fill(n.config.items ?? ""));
+            if (n.config.source === "data") items = parseDataFile(fill2(n.config.items ?? ""));
             else {
               const data = last ? parseJson(last.body) : void 0;
               items = data === void 0 ? [] : queryJson(data, n.config.path || "$[*]");
@@ -44293,22 +44442,697 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
 var EndFlow = class extends Error {
 };
 
-// src/cli/mcpServer.ts
+// src/core/mcpWorkspace.ts
+init_prepare();
+init_runtime();
+
+// src/core/curl.ts
+init_types();
+init_url();
+
+// src/core/share.ts
+init_prepare();
+init_runtime();
+var SECRET_NAME = /(authorization|cookie|token|secret|passw(?:or)?d|(?:^|[-_])pwd$|api[-_]?key|session|credential|signature|private[-_]?key|otp|cvv|ssn|card[-_]?number)/i;
+
+// src/core/mcpWorkspace.ts
+init_types();
+init_url();
+var ASSISTANT_PREFIX = "assistant/";
+var INBOX = "Inbox";
+var HIDDEN = "<hidden>";
+var BODY_KINDS = ["json", "text", "xml", "html", "graphql"];
+var WORKSPACE_TOOL_NAMES = ["create_request", "update_request", "copy_request", "move_request", "delete_request", "set_variables", "set_scripts"];
+var IS_VAR = /^\s*\{\{[^{}]+\}\}\s*$/;
+function scriptFields(what) {
+  return {
+    preRequestScript: { type: "string", description: `JavaScript run before ${what === "request" ? "it is sent" : `every request in the ${what}`} (dx.vars.set, dx.env.set \u2026; Postman's pm.* also works, but write new scripts with dx). Replaces the whole script; "" removes it. get_request shows the current one.` },
+    testScript: { type: "string", description: `JavaScript run after the response${what === "request" ? "" : ` of every request in the ${what}`} (test("name", () => expect(dx.response.status).to.equal(200)), dx.response.json(), dx.env.set \u2026; Postman's pm.* also works, but write new scripts with dx). Replaces the whole script; "" removes it.` }
+  };
+}
+var fields = {
+  method: { type: "string", enum: [...METHODS] },
+  url: { type: "string", description: "The full URL with any query string; {{variables}} are fine." },
+  headers: { type: "object", additionalProperties: { type: "string" }, description: `Header names and values (replaces all headers). Values shown as ${HIDDEN} can't be written back: leave headers out to keep them, or use a {{variable}}.` },
+  body: { type: "string", description: `The request body as text. Values shown as ${HIDDEN} can't be written back.` },
+  bodyType: { type: "string", enum: BODY_KINDS, description: "Defaults to json when the body is JSON, otherwise text." },
+  docs: { type: "string", description: "Notes shown with the request (Markdown)." },
+  ...scriptFields("request")
+};
+function workspaceTools(editable) {
+  const where = `a path like "assistant/Orders" or "assistant/Orders/Admin"${editable ? `, or "Orders/Admin" for the user\u2019s workspace \u201C${editable}\u201D, which they let you edit` : ""}: the first part is the collection; collections and folders that don\u2019t exist yet are made`;
+  const yours = editable ? `your own workspace ("assistant/\u2026") or the user\u2019s workspace \u201C${editable}\u201D` : 'your own workspace ("assistant/\u2026")';
+  return [
+    {
+      name: "create_request",
+      description: `Save a new HTTP request in ${yours}. It is not sent; use send_request for that.${editable ? "" : " You can\u2019t write to the user\u2019s workspaces; they move what they want to keep."}`,
+      inputSchema: {
+        type: "object",
+        properties: { folder: { type: "string", description: `Where to save it: ${where}.` }, name: { type: "string" }, ...fields, method: { ...fields.method, description: "Defaults to GET." } },
+        required: ["folder", "name", "url"]
+      }
+    },
+    {
+      name: "update_request",
+      description: `Change a request in ${yours}. Only the fields given change.${editable ? "" : " The user\u2019s saved requests can\u2019t be changed: copy_request one first and change the copy."}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: 'Its path, like "assistant/Orders/Create order".' },
+          newName: { type: "string", description: "Rename it." },
+          ...fields,
+          reviewed: { type: "boolean", description: "true clears the \u201Chanded to you\u201D flag without moving it (move_request clears it too)." }
+        },
+        required: ["name"]
+      }
+    },
+    {
+      name: "copy_request",
+      description: `Copy a request (the user\u2019s or your own) into ${yours}, with its auth, scripts and settings, so you can change and send the copy.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "The path from list_requests." },
+          to: { type: "string", description: `Where to put the copy: ${where}.` },
+          name: { type: "string", description: "A name for the copy; defaults to the original\u2019s." }
+        },
+        required: ["from", "to"]
+      }
+    },
+    {
+      name: "move_request",
+      description: `Move (and optionally rename) a request within ${yours}, e.g. to file one the user handed you from assistant/${INBOX} into a proper collection. Its auth comes along, and a collection made for it gets the original collection\u2019s variables. Clears the \u201Chanded to you\u201D flag.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: `Its path, like "assistant/${INBOX}/Create order".` },
+          to: { type: "string", description: `Where to: ${where}.` },
+          newName: { type: "string", description: "Rename it on the way." }
+        },
+        required: ["name", "to"]
+      }
+    },
+    {
+      name: "delete_request",
+      description: `Delete a request from ${yours}. The user can undo it in the app.`,
+      inputSchema: { type: "object", properties: { name: { type: "string", description: 'Its path, like "assistant/Orders/Create order".' } }, required: ["name"] }
+    },
+    {
+      name: "set_variables",
+      description: `Set or remove collection variables (used as {{name}} in its requests) on a collection in ${yours}, e.g. a {{baseUrl}} after replacing a hard-coded host.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          collection: { type: "string", description: 'The collection, like "assistant/Orders".' },
+          variables: { type: "object", additionalProperties: { type: "string" }, description: "Names and values to set." },
+          remove: { type: "array", items: { type: "string" }, description: "Names to remove." }
+        },
+        required: ["collection"]
+      }
+    },
+    {
+      name: "set_scripts",
+      description: `Set the pre-request or tests script of a collection or folder in ${yours}; it runs for every request inside. For one request's own scripts use update_request.`,
+      inputSchema: {
+        type: "object",
+        properties: { path: { type: "string", description: 'The collection or folder, like "assistant/Orders" or "assistant/Orders/Admin".' }, ...scriptFields("collection or folder") },
+        required: ["path"]
+      }
+    }
+  ];
+}
+function getRequestTool() {
+  return {
+    name: "get_request",
+    description: `Show one saved request in full: method, URL, headers, body, auth (as it applies, inherited or not), scripts, docs, the collection\u2019s variables, and the user\u2019s note if they handed it to you. Secret values show as ${HIDDEN}.`,
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "The path from list_requests." } }, required: ["name"] }
+  };
+}
+var hide = (name, v) => {
+  if (!v || IS_VAR.test(v) || !SECRET_NAME.test(name) || /^access-control-/i.test(name)) return v;
+  const scheme = /^(Bearer|Basic|Digest|Token)\s+(?!\{\{)/i.exec(v);
+  return scheme ? `${scheme[0]}${HIDDEN}` : HIDDEN;
+};
+var AUTH_SECRETS = /* @__PURE__ */ new Set(["password", "token", "value", "clientSecret", "accessToken", "secret", "accessKey", "secretKey"]);
+var AUTH_FIELDS = {
+  basic: ["username", "password"],
+  digest: ["username", "password"],
+  bearer: ["token"],
+  apikey: ["key", "value", "in"],
+  oauth2: ["grant", "tokenUrl", "authUrl", "clientId", "clientSecret", "scope", "accessToken"],
+  jwt: ["algorithm", "secret", "headerPrefix"],
+  awsv4: ["accessKey", "secretKey", "region", "service"]
+};
+var JWT = /\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}/g;
+var AUTH_SCHEME = /\b((?:Bearer|Basic|Digest|Token)\s+)(?!\{\{)[A-Za-z0-9._~+/=-]{8,}/g;
+function hideInText(s) {
+  return s.replace(/(\/\/[^/\s:@{}]+:)(?!\{\{)([^@/\s]+)@/g, (_m, pre) => `${pre}${HIDDEN}@`).replace(JWT, HIDDEN).replace(AUTH_SCHEME, (_m, pre) => `${pre}${HIDDEN}`).replace(/("([^"\\]+)"\s*:\s*)"((?:[^"\\]|\\.)*)"/g, (m, pre, k, v) => v && !IS_VAR.test(v) && SECRET_NAME.test(k) ? `${pre}"${HIDDEN}"` : m).replace(/([?&;\s]|^)([\w.-]+)=([^&;?\s"'<>,]+)/g, (m, pre, k, v) => !IS_VAR.test(v) && SECRET_NAME.test(k) ? `${pre}${k}=${HIDDEN}` : m);
+}
+var hasHidden = (...xs) => xs.some((x) => x !== void 0 && x !== null && JSON.stringify(x).includes(HIDDEN));
+var hasSecretText = (t) => hideInText(t) !== t;
+var headerHidden = (h) => hideInText(hide(h.key, h.value)) !== h.value;
+var bodyHasSecret = (b) => b.kind === "urlencoded" || b.kind === "formdata" ? b.fields.some((f) => hide(f.key, f.value) !== f.value) : b.kind !== "none" && b.kind !== "binary" && hasSecretText(b.text);
+var keepsSecret = (what) => `The ${what} holds a secret you were shown as ${HIDDEN}; rewriting it would lose that secret, so it was left as it is. Ask the user to move the secret into a {{variable}} first, then change it.`;
+function describeRequest(found, x) {
+  const r = found.it.request;
+  const col = x.allCollections.find((c2) => c2.id === r.collectionId) ?? null;
+  const auth = effectiveAuth(r, col, folderChain(x.folders, r.folderId));
+  const authLine = (a) => {
+    if (!a || a.kind === "none") return "none";
+    const shown = (AUTH_FIELDS[a.kind] ?? []).map((k) => [k, a[k]]).filter(([, v]) => typeof v === "string" && v).map(([k, v]) => `${k}: ${AUTH_SECRETS.has(k) && !IS_VAR.test(v) ? HIDDEN : v}`);
+    return `${a.kind}${r.auth.kind === "inherit" ? " (inherited)" : ""}${shown.length ? ` \u2014 ${shown.join(", ")}` : ""}`;
+  };
+  const lines = [`${r.method} ${found.path}`, `URL: ${hideInText(r.url)}`];
+  if (r.pathVars.length) lines.push(`Path variables: ${r.pathVars.map((p) => `${p.key}=${hide(p.key, p.value)}`).join(", ")}`);
+  lines.push(`Auth: ${authLine(auth)}`);
+  const hs = r.headers.filter((h) => h.key);
+  lines.push(hs.length ? `Headers:
+${hs.map((h) => `  ${h.enabled === false ? "(off) " : ""}${h.key}: ${hideInText(hide(h.key, h.value))}`).join("\n")}` : "Headers: none");
+  const b = r.body;
+  if (b.kind === "none") lines.push("Body: none");
+  else if (b.kind === "urlencoded" || b.kind === "formdata") lines.push(`Body (${b.kind}):
+${b.fields.map((f) => `  ${f.key}=${hide(f.key, f.value)}`).join("\n")}`);
+  else if (b.kind === "binary") lines.push("Body: a file");
+  else lines.push(`Body (${b.kind}):
+${hideInText(b.text.length > 2e4 ? `${b.text.slice(0, 2e4)}
+\u2026 (cut)` : b.text)}`);
+  if (r.scripts.pre.trim()) lines.push(`Pre-request script:
+${hideInText(r.scripts.pre)}`);
+  if (r.scripts.post.trim()) lines.push(`Tests script:
+${hideInText(r.scripts.post)}`);
+  const owners = [...folderChain(x.folders, r.folderId).reverse().map((f) => [`Folder \u201C${f.name}\u201D`, f.scripts]), ...col ? [[`Collection \u201C${col.name}\u201D`, col.scripts]] : []];
+  for (const [owner, sc] of owners) {
+    if (sc.pre.trim()) lines.push(`${owner} pre-request script (runs too):
+${hideInText(sc.pre)}`);
+    if (sc.post.trim()) lines.push(`${owner} tests script (runs too):
+${hideInText(sc.post)}`);
+  }
+  if (r.docs.trim()) lines.push(`Docs:
+${hideInText(r.docs)}`);
+  if (col?.variables.length) lines.push(`Collection \u201C${col.name}\u201D variables: ${col.variables.map((v) => `${v.key} = ${hide(v.key, v.value)}`).join(", ")}`);
+  if (r.handoff) {
+    const h = r.handoff;
+    lines.push(`Handed to you by the user (${new Date(h.at).toISOString().slice(0, 16).replace("T", " ")}) from \u201C${h.from}\u201D${h.note ? `, asking: ${hideInText(h.note)}` : ""}.`);
+    if (h.variables?.length) lines.push(`Its original collection\u2019s variables: ${h.variables.map((v) => `${v.key} = ${hide(v.key, v.value)}`).join(", ")} (given to a new collection you move it into).`);
+    if (/^\/\/ From the (collection|folder) “/m.test(r.scripts.pre + "\n" + r.scripts.post)) lines.push("Its scripts include the collection and folder scripts it ran with (each marked \u201C// From the \u2026\u201D): remove those parts if you file it back under that collection or folder, or they run twice.");
+    lines.push("Review it, fix what needs fixing (update_request, set_variables), then file it with move_request.");
+  }
+  return lines.join("\n");
+}
+function scriptsOf(args, cur) {
+  const scripts = { ...cur };
+  const changed = [];
+  if (args.preRequestScript !== void 0 && args.preRequestScript !== null) {
+    scripts.pre = String(args.preRequestScript);
+    changed.push("pre-request script");
+  }
+  if (args.testScript !== void 0 && args.testScript !== null) {
+    scripts.post = String(args.testScript);
+    changed.push("tests script");
+  }
+  return { scripts, changed };
+}
+async function workspaceCall(name, args, x) {
+  const made = { collections: [], folders: [], requests: [] };
+  const ed = x.w.editable;
+  const assistantCols = () => [...x.w.collections, ...made.collections.filter((c2) => c2.workspaceId === ASSISTANT_SPACE.id)];
+  const userCols = () => ed ? [...ed.collections, ...made.collections.filter((c2) => c2.workspaceId === ed.workspaceId)] : [];
+  const folders = () => [...x.folders, ...made.folders];
+  const mine = new Set(x.w.collections.map((c2) => c2.id));
+  const writable = /* @__PURE__ */ new Set([...mine, ...(ed?.collections ?? []).map((c2) => c2.id)]);
+  const isAssistantCol = (id) => !!id && (mine.has(id) || made.collections.some((c2) => c2.id === id && c2.workspaceId === ASSISTANT_SPACE.id));
+  const rootOf = (path) => {
+    const p = String(path ?? "").trim().replace(/^\/+|\/+$/g, "");
+    const prefixed = p === "assistant" || p.startsWith(ASSISTANT_PREFIX);
+    const split = (t) => t.split("/").map((y) => y.trim()).filter(Boolean);
+    const segs = split(prefixed ? p.slice(ASSISTANT_PREFIX.length) : p);
+    if (!ed) return { assistant: true, segs };
+    const ownHas = (name2) => !!name2 && assistantCols().some((c2) => c2.name === name2);
+    const userHas = (name2) => !!name2 && userCols().some((c2) => c2.name === name2);
+    if (!prefixed) {
+      return { assistant: ownHas(segs[0]) && !userHas(segs[0]), segs };
+    }
+    const userAssistant = userCols().find((c2) => c2.name === "assistant");
+    if (userAssistant && !ownHas(segs[0]) && (!segs.length || folders().some((f) => f.collectionId === userAssistant.id && f.parentId === null && f.name === segs[0]))) {
+      return { assistant: false, segs: split(p) };
+    }
+    return { assistant: true, segs };
+  };
+  const placeAt = (path) => {
+    const { assistant, segs } = rootOf(path);
+    if (!segs.length) return `Say where: a collection, like "assistant/My tests"${ed ? ` or a collection in \u201C${ed.name}\u201D` : ""}.`;
+    let collection = (assistant ? assistantCols() : userCols()).find((c2) => c2.name === segs[0]);
+    const fresh = !collection;
+    if (!collection) {
+      collection = { ...newCollection(segs[0]), workspaceId: assistant ? ASSISTANT_SPACE.id : ed.workspaceId };
+      made.collections.push(collection);
+    }
+    let parent = null;
+    for (const s of segs.slice(1)) {
+      let f = folders().find((y) => y.collectionId === collection.id && y.parentId === parent && y.name === s);
+      if (!f) {
+        f = newFolder(collection.id, s, parent);
+        made.folders.push(f);
+      }
+      parent = f.id;
+    }
+    return { collection, folderId: parent, fresh };
+  };
+  const siblingsOf = (collectionId, folderId) => x.requests.filter((r) => r.collectionId === collectionId && r.folderId === folderId);
+  const nextSort = (collectionId, folderId) => Math.max(0, ...siblingsOf(collectionId, folderId).map((r) => r.sort), ...folders().filter((f) => f.collectionId === collectionId && f.parentId === folderId).map((f) => f.sort)) + 1;
+  const label = (r) => {
+    const c2 = [...assistantCols(), ...userCols(), ...x.allCollections].find((y) => y.id === r.collectionId);
+    return (isAssistantCol(r.collectionId) ? ASSISTANT_PREFIX : "") + [c2?.name ?? "?", ...folderChain(folders(), r.folderId).reverse().map((f) => f.name), r.name].join("/");
+  };
+  const refused = (path) => `\u201C${path}\u201D is one of the user\u2019s saved requests, which you can\u2019t change${ed ? ` (only \u201C${ed.name}\u201D and your own workspace are open to you)` : ""}. Use copy_request to copy it into your workspace and change the copy.`;
+  const own = (path) => {
+    const found = x.lookup(String(path ?? ""));
+    if ("error" in found) return found.error;
+    if (!writable.has(found.it.request.collectionId ?? "")) return refused(found.path);
+    return found.it.request;
+  };
+  const methodOf = (m) => {
+    const v = String(m).toUpperCase();
+    return METHODS.includes(v) ? v : null;
+  };
+  const bodyOf = (args2, current) => {
+    if (args2.bodyType !== void 0 && !BODY_KINDS.includes(args2.bodyType)) return `Unknown bodyType \u201C${args2.bodyType}\u201D; use one of ${BODY_KINDS.join(", ")}.`;
+    const base = current ?? newRequest().body;
+    if (args2.body === void 0 || args2.body === null) return args2.bodyType && current ? { ...base, kind: args2.bodyType } : base;
+    const text = typeof args2.body === "string" ? args2.body : JSON.stringify(args2.body, null, 2);
+    if (!text) return { ...base, kind: "none", text: "" };
+    const kind = args2.bodyType ?? (() => {
+      try {
+        JSON.parse(text);
+        return "json";
+      } catch {
+        return "text";
+      }
+    })();
+    return { ...base, kind, text };
+  };
+  const headersOf = (h) => h && typeof h === "object" && !Array.isArray(h) ? Object.entries(h).map(([k, v]) => kv(k, String(v))) : null;
+  const sendNote = (method) => x.allowMethods.length && !x.allowMethods.includes(method) ? ` To send it, ${method} has to be added to the allowed methods in Dispatch (now ${x.allowMethods.join(", ")}).` : "";
+  const hiddenBack = `${HIDDEN} stands for a secret you weren\u2019t shown, so it can\u2019t be saved. Leave that field out to keep the real value, or use a {{variable}}.`;
+  const carryAuth = (r, to, notes) => {
+    if (r.auth.kind !== "inherit" || r.collectionId === to.collectionId && r.folderId === to.folderId) return r.auth;
+    const colById = (id) => [...x.allCollections, ...assistantCols(), ...userCols()].find((c2) => c2.id === id) ?? null;
+    const auth = effectiveAuth(r, colById(r.collectionId), folderChain(folders(), r.folderId));
+    if (!auth) return r.auth;
+    const there = effectiveAuth({ ...r, collectionId: to.collectionId, folderId: to.folderId }, colById(to.collectionId), folderChain(folders(), to.folderId));
+    if (there && JSON.stringify(there) === JSON.stringify(auth)) return r.auth;
+    if (auth.kind !== "none") notes.push(`the ${auth.kind} auth it inherited was copied onto it`);
+    return structuredClone(auth);
+  };
+  if (name === "create_request") {
+    const rname = String(args.name ?? "").trim();
+    const url = String(args.url ?? "").trim();
+    if (!rname || !url) return ["Give the request a name and a URL.", true];
+    if (hasHidden(url, args.headers, args.body, args.preRequestScript, args.testScript)) return [hiddenBack, true];
+    const method = methodOf(args.method ?? "GET");
+    if (!method) return [`Unknown method \u201C${args.method}\u201D; use one of ${METHODS.join(", ")}.`, true];
+    const at = placeAt(args.folder);
+    if (typeof at === "string") return [at, true];
+    if (siblingsOf(at.collection.id, at.folderId).some((r2) => r2.name === rname)) return [`That folder already has \u201C${rname}\u201D. Use update_request to change it, or pick another name.`, true];
+    const body = bodyOf(args, null);
+    if (typeof body === "string") return [body, true];
+    const r = newRequest({
+      name: rname,
+      method,
+      url,
+      params: paramsFromUrl(url, []),
+      headers: headersOf(args.headers) ?? [],
+      body,
+      collectionId: at.collection.id,
+      folderId: at.folderId,
+      sort: nextSort(at.collection.id, at.folderId),
+      docs: typeof args.docs === "string" ? args.docs : "",
+      scripts: scriptsOf(args, newRequest().scripts).scripts
+    });
+    await x.w.save({ ...made, requests: [r] });
+    return [`Saved ${method} ${label(r)} \u2192 ${url}${body.kind !== "none" ? ` (${body.kind} body)` : ""}.${sendNote(method)}`, false];
+  }
+  if (name === "update_request") {
+    const r = own(args.name);
+    if (typeof r === "string") return [r, true];
+    if (hasHidden(args.url, args.headers, args.body, args.preRequestScript, args.testScript)) return [hiddenBack, true];
+    const next = { ...r, updatedAt: Date.now() };
+    const changed = [];
+    if (args.newName !== void 0) {
+      const n = String(args.newName).trim();
+      if (!n) return ["newName can\u2019t be empty.", true];
+      if (n !== r.name && siblingsOf(r.collectionId, r.folderId).some((y) => y.name === n)) return [`That folder already has \u201C${n}\u201D.`, true];
+      next.name = n;
+      changed.push("name");
+    }
+    if (args.method !== void 0) {
+      const m = methodOf(args.method);
+      if (!m) return [`Unknown method \u201C${args.method}\u201D; use one of ${METHODS.join(", ")}.`, true];
+      next.method = m;
+      changed.push("method");
+    }
+    if (args.url !== void 0) {
+      const u = String(args.url).trim();
+      if (u !== r.url && hasSecretText(r.url)) return [keepsSecret("URL"), true];
+      next.url = u;
+      next.params = paramsFromUrl(next.url, r.params);
+      changed.push("URL");
+    }
+    const kept = [];
+    if (args.headers !== void 0) {
+      const h = headersOf(args.headers);
+      if (!h) return ["headers must be an object of names and values.", true];
+      const given = new Map(h.map((y) => [y.key.toLowerCase(), y]));
+      const merged = [];
+      for (const y of r.headers) {
+        const g = y.key ? given.get(y.key.toLowerCase()) : void 0;
+        if (g) {
+          merged.push(g);
+          given.delete(y.key.toLowerCase());
+        } else if (y.key && headerHidden(y)) {
+          merged.push(y);
+          kept.push(y.key);
+        }
+      }
+      next.headers = [...merged, ...given.values()];
+      changed.push("headers");
+    }
+    if (args.body !== void 0 || args.bodyType !== void 0) {
+      if (bodyHasSecret(r.body)) return [keepsSecret("body"), true];
+      const b = bodyOf(args, r.body);
+      if (typeof b === "string") return [b, true];
+      next.body = b;
+      changed.push("body");
+    }
+    if (args.docs !== void 0) {
+      if (String(args.docs) !== r.docs && hasSecretText(r.docs)) return [keepsSecret("docs text"), true];
+      next.docs = String(args.docs);
+      changed.push("docs");
+    }
+    if (args.preRequestScript !== void 0 && hasSecretText(r.scripts.pre) || args.testScript !== void 0 && hasSecretText(r.scripts.post)) return [keepsSecret("script"), true];
+    const sc = scriptsOf(args, r.scripts);
+    if (sc.changed.length) {
+      next.scripts = sc.scripts;
+      changed.push(...sc.changed);
+    }
+    if (args.reviewed === true && r.handoff) {
+      delete next.handoff;
+      changed.push("marked reviewed");
+    }
+    if (!changed.length) return ["Nothing to change: give newName, method, url, headers, body, bodyType, docs, preRequestScript, testScript or reviewed.", true];
+    await x.w.save({ ...made, requests: [next] });
+    return [`Updated ${label(next)} (${changed.join(", ")}).${kept.length ? ` Kept the hidden ${kept.join(", ")} header${kept.length > 1 ? "s" : ""}; name ${kept.length > 1 ? "them" : "it"} with a {{variable}} value to replace ${kept.length > 1 ? "them" : "it"}.` : ""}${sendNote(next.method)}`, false];
+  }
+  if (name === "copy_request") {
+    const found = x.lookup(String(args.from ?? ""));
+    if ("error" in found) return [found.error, true];
+    const src = found.it.request;
+    const at = placeAt(args.to);
+    if (typeof at === "string") return [at, true];
+    const rname = String(args.name ?? "").trim() || src.name;
+    if (siblingsOf(at.collection.id, at.folderId).some((r) => r.name === rname)) return [`That folder already has \u201C${rname}\u201D; give the copy another name.`, true];
+    const notes = [];
+    const copy = { ...structuredClone(src), id: uid(), name: rname, collectionId: at.collection.id, folderId: at.folderId, sort: nextSort(at.collection.id, at.folderId), updatedAt: Date.now() };
+    delete copy.handoff;
+    if (src.collectionId !== at.collection.id) {
+      copy.auth = carryAuth(src, { collectionId: at.collection.id, folderId: at.folderId }, notes);
+      const srcCol = x.allCollections.find((c2) => c2.id === src.collectionId) ?? null;
+      if (srcCol?.variables.length) {
+        if (at.fresh) {
+          at.collection.variables = structuredClone(srcCol.variables);
+          notes.push(`the new collection got \u201C${srcCol.name}\u201D\u2019s variables`);
+        } else notes.push(`\u201C${srcCol.name}\u201D\u2019s collection variables weren\u2019t copied`);
+      }
+    }
+    await x.w.save({ ...made, requests: [copy] });
+    return [`Copied ${found.path} to ${label(copy)}${notes.length ? `; ${notes.join("; ")}` : ""}.${sendNote(copy.method)}`, false];
+  }
+  if (name === "move_request") {
+    const r = own(args.name);
+    if (typeof r === "string") return [r, true];
+    const from = label(r);
+    const at = placeAt(args.to);
+    if (typeof at === "string") return [at, true];
+    const rname = args.newName !== void 0 ? String(args.newName).trim() : r.name;
+    if (!rname) return ["newName can\u2019t be empty.", true];
+    if (siblingsOf(at.collection.id, at.folderId).some((y) => y.name === rname && y.id !== r.id)) return [`That folder already has \u201C${rname}\u201D; pick another name with newName.`, true];
+    const notes = [];
+    const next = { ...r, name: rname, collectionId: at.collection.id, folderId: at.folderId, sort: nextSort(at.collection.id, at.folderId), updatedAt: Date.now() };
+    next.auth = carryAuth(r, { collectionId: at.collection.id, folderId: at.folderId }, notes);
+    if (r.collectionId !== at.collection.id) {
+      const vars = r.handoff?.variables ?? x.allCollections.find((c2) => c2.id === r.collectionId)?.variables ?? [];
+      if (vars.length && at.fresh) {
+        at.collection.variables = structuredClone(vars);
+        notes.push("the new collection got the original collection\u2019s variables");
+      }
+    }
+    if (r.handoff) {
+      delete next.handoff;
+      notes.push("marked reviewed");
+    }
+    await x.w.save({ ...made, requests: [next] });
+    return [`Moved ${from} to ${label(next)}${notes.length ? `; ${notes.join("; ")}` : ""}.`, false];
+  }
+  if (name === "delete_request") {
+    const r = own(args.name);
+    if (typeof r === "string") return [r, true];
+    await x.w.remove([r.id]);
+    return [`Deleted ${label(r)}. The user can undo it in Dispatch.`, false];
+  }
+  if (name === "set_variables") {
+    const { assistant, segs } = rootOf(args.collection);
+    if (segs.length !== 1) return ['Name one collection, like "assistant/Orders".', true];
+    const c2 = (assistant ? assistantCols() : userCols()).find((y) => y.name === segs[0]);
+    if (!c2) {
+      const theirs = x.allCollections.some((y) => y.name === segs[0] && !writable.has(y.id));
+      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : `No collection \u201C${String(args.collection)}\u201D you can change. Use list_requests.`, true];
+    }
+    const set2 = args.variables && typeof args.variables === "object" && !Array.isArray(args.variables) ? Object.entries(args.variables).map(([k, v]) => [k, String(v)]) : [];
+    const drop = Array.isArray(args.remove) ? args.remove.map(String) : [];
+    if (!set2.length && !drop.length) return ["Give variables to set or names to remove.", true];
+    if (set2.some(([, v]) => v.includes(HIDDEN))) return [hiddenBack, true];
+    let vars = c2.variables.filter((v) => !drop.includes(v.key));
+    for (const [k, v] of set2) vars = vars.some((y) => y.key === k) ? vars.map((y) => y.key === k ? { ...y, value: v } : y) : [...vars, kv(k, v)];
+    await x.w.save({ collections: [{ ...c2, variables: vars, updatedAt: Date.now() }], folders: [], requests: [] });
+    const prefix = c2.workspaceId === ASSISTANT_SPACE.id ? ASSISTANT_PREFIX : "";
+    return [`Collection ${prefix}${c2.name}: ${[set2.length ? `set ${set2.map(([k]) => k).join(", ")}` : "", drop.length ? `removed ${drop.join(", ")}` : ""].filter(Boolean).join("; ")}.`, false];
+  }
+  if (name === "set_scripts") {
+    const { assistant, segs } = rootOf(args.path);
+    if (!segs.length) return ['Name a collection or folder, like "assistant/Orders/Admin".', true];
+    const c2 = (assistant ? assistantCols() : userCols()).find((y) => y.name === segs[0]);
+    if (!c2) {
+      const theirs = x.allCollections.some((y) => y.name === segs[0] && !writable.has(y.id));
+      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : `No collection \u201C${segs[0]}\u201D you can change. Use list_requests.`, true];
+    }
+    let folder;
+    let parent = null;
+    for (const seg of segs.slice(1)) {
+      folder = x.folders.find((y) => y.collectionId === c2.id && y.parentId === parent && y.name === seg);
+      if (!folder) return [`No folder \u201C${seg}\u201D in ${String(args.path)}.`, true];
+      parent = folder.id;
+    }
+    if (hasHidden(args.preRequestScript, args.testScript)) return [hiddenBack, true];
+    const cur = (folder ?? c2).scripts;
+    if (args.preRequestScript !== void 0 && hasSecretText(cur.pre) || args.testScript !== void 0 && hasSecretText(cur.post)) return [keepsSecret("script"), true];
+    const sc = scriptsOf(args, cur);
+    if (!sc.changed.length) return ["Give preRequestScript or testScript.", true];
+    if (folder) await x.w.save({ collections: [], folders: [{ ...folder, scripts: sc.scripts, updatedAt: Date.now() }], requests: [] });
+    else await x.w.save({ collections: [{ ...c2, scripts: sc.scripts, updatedAt: Date.now() }], folders: [], requests: [] });
+    const prefix = c2.workspaceId === ASSISTANT_SPACE.id ? ASSISTANT_PREFIX : "";
+    return [`${folder ? "Folder" : "Collection"} ${prefix}${segs.join("/")}: updated the ${sc.changed.join(" and ")}.`, false];
+  }
+  return [`Unknown tool ${name}`, true];
+}
+
+// src/core/mcpLogs.ts
+var LOG_TOOL_NAMES = ["get_logs", "list_history", "get_history_entry", "get_environment"];
+var LOG_MAX = 500;
+var HISTORY_MAX = 100;
 var BODY_LIMIT = 2e4;
-function mcpTools(flowNames = []) {
+var SENSITIVE_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token)$/i;
+var IS_VAR2 = /^\s*\{\{[^{}]+\}\}\s*$/;
+function logTools(envNames) {
+  return [
+    {
+      name: "get_logs",
+      description: "Read Dispatch\u2019s console: script output (console.log), network lines, collection and flow run summaries, and your own MCP calls, oldest first. Secret values show as <hidden>.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: `How many of the newest lines (default 100, at most ${LOG_MAX}).` },
+          level: { type: "string", enum: ["error", "warn", "info", "log"], description: "Only this level and worse (error < warn < info < log)." },
+          source: { type: "string", description: 'Only lines from this source, e.g. "script", "network", "flow", "mcp".' },
+          contains: { type: "string", description: "Only lines containing this text (case-insensitive)." }
+        }
+      }
+    },
+    {
+      name: "list_history",
+      description: "List recent sends (by the user or by you) from the open workspace, newest first: id, time, method, URL, status or error, time taken and test results. Use get_history_entry for one in full.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: `How many (default 20, at most ${HISTORY_MAX}).` },
+          failed: { type: "boolean", description: "Only sends that errored, got a 4xx/5xx status, or failed a test." },
+          request: { type: "string", description: "Only requests whose name contains this text (case-insensitive)." }
+        }
+      }
+    },
+    {
+      name: "get_history_entry",
+      description: "One send from list_history in full: what was sent (URL, headers, body) and what came back (status, headers, body, tests, error). Secret values show as <hidden>.",
+      inputSchema: { type: "object", properties: { id: { type: "string", description: "The id list_history shows (its first 8 characters are enough)." } }, required: ["id"] }
+    },
+    {
+      name: "get_environment",
+      description: `Show an environment\u2019s variables (secret values as <hidden>), and which environment is active.${envNames.length ? ` Environments: ${envNames.join(", ")}.` : ""}`,
+      inputSchema: { type: "object", properties: { name: { type: "string", description: "The environment; leave out for the active one." } } }
+    }
+  ];
+}
+var Redactor = class {
+  values;
+  constructor(values) {
+    this.values = [...new Set([...values].map((v) => v.trim()).filter((v) => v.length >= 6 && !IS_VAR2.test(v)))].sort((a, b) => b.length - a.length);
+  }
+  text(s) {
+    let out = hideInText(s);
+    for (const v of this.values) if (out.includes(v)) out = out.split(v).join(HIDDEN);
+    return out;
+  }
+};
+function knownSecrets(x) {
+  const out = [...x.extra ?? []];
+  const vars = (list) => {
+    for (const v of list) if (v.value && (v.secret || SECRET_NAME.test(v.key))) out.push(v.value, ...(v.options ?? []).map((o) => o.value));
+  };
+  const auth = (a) => {
+    for (const [k, v] of Object.entries(a ?? {})) if (typeof v === "string" && v && AUTH_SECRETS.has(k)) out.push(v);
+  };
+  const headers = (hs) => {
+    for (const h of hs) if (h.value && (SENSITIVE_HEADER.test(h.key) || SECRET_NAME.test(h.key))) out.push(h.value, h.value.replace(/^(Bearer|Basic|Digest|Token)\s+/i, ""));
+  };
+  for (const e of x.environments) vars(e.variables);
+  vars(x.globals);
+  for (const c2 of x.collections) {
+    vars(c2.variables);
+    auth(c2.auth);
+  }
+  for (const f of x.folders) auth(f.auth);
+  for (const r of x.requests) {
+    auth(r.auth);
+    headers(r.headers);
+    vars(r.handoff?.variables ?? []);
+  }
+  return out;
+}
+var LEVELS = ["error", "warn", "info", "log"];
+var clamp = (n, def, max) => Math.max(1, Math.min(max, Math.floor(Number(n) || def)));
+var time = (at) => new Date(at).toISOString().replace("T", " ").slice(0, 19);
+var cut = (s) => s.length > BODY_LIMIT ? `${s.slice(0, BODY_LIMIT)}
+\u2026 (cut at ${BODY_LIMIT} characters)` : s;
+var failedEntry = (h) => !!h.error || !h.response || h.response.status >= 400 || !!h.tests?.some((t) => !t.passed);
+function logCall(name, args, x) {
+  const R = (s) => x.redact.text(s);
+  if (name === "get_logs") {
+    let lines = x.src.logs();
+    if (args.level) {
+      const worst = LEVELS.indexOf(args.level);
+      if (worst < 0) return [`level must be one of ${LEVELS.join(", ")}.`, true];
+      lines = lines.filter((l) => LEVELS.indexOf(l.level) <= worst);
+    }
+    if (args.source) lines = lines.filter((l) => (l.source ?? "") === String(args.source));
+    if (args.contains) {
+      const q = String(args.contains).toLowerCase();
+      lines = lines.filter((l) => l.text.toLowerCase().includes(q));
+    }
+    const total = lines.length;
+    lines = lines.slice(-clamp(args.limit, 100, LOG_MAX));
+    if (!lines.length) return [total ? "No lines match." : "The console is empty.", false];
+    const head = total > lines.length ? `Last ${lines.length} of ${total} lines (UTC):
+` : `${lines.length} line${lines.length > 1 ? "s" : ""} (UTC):
+`;
+    return [head + lines.map((l) => `${time(l.at)} ${l.level.padEnd(5)} ${l.source ? `[${l.source}] ` : ""}${R(l.text)}`).join("\n"), false];
+  }
+  const visible = () => x.src.history().filter((h) => !h.request.collectionId || x.collectionIds.has(h.request.collectionId));
+  if (name === "list_history") {
+    let list = visible();
+    if (args.failed === true) list = list.filter(failedEntry);
+    if (args.request) {
+      const q = String(args.request).toLowerCase();
+      list = list.filter((h) => h.request.name.toLowerCase().includes(q));
+    }
+    list = list.slice(0, clamp(args.limit, 20, HISTORY_MAX));
+    if (!list.length) return ["No sends match.", false];
+    return [`${list.length} send${list.length > 1 ? "s" : ""}, newest first (UTC):
+` + list.map((h) => {
+      const what = h.response ? `${h.response.status} ${h.response.statusText} (${h.response.timeMs} ms)` : `error: ${R(h.error ?? "no response")}`;
+      const tests = h.tests?.length ? `, tests ${h.tests.filter((t) => t.passed).length}/${h.tests.length} passed` : "";
+      return `${h.id.slice(0, 8)}  ${time(h.at)}  ${h.sent.method} ${R(h.sent.url)}  \u201C${h.request.name}\u201D \u2192 ${what}${tests}`;
+    }).join("\n"), false];
+  }
+  if (name === "get_history_entry") {
+    const id = String(args.id ?? "").trim();
+    if (!id) return ["Give the id from list_history.", true];
+    const hits = visible().filter((h2) => h2.id.startsWith(id));
+    if (!hits.length) return [`No send \u201C${id}\u201D in the open workspace\u2019s history. Use list_history.`, true];
+    if (hits.length > 1) return [`\u201C${id}\u201D matches ${hits.length} sends; give more of the id.`, true];
+    const h = hits[0];
+    const hdr = (k, v) => `  ${k}: ${SENSITIVE_HEADER.test(k) ? hide("authorization", v) : R(hide(k, v))}`;
+    const lines = [
+      `\u201C${h.request.name}\u201D sent ${time(h.at)} UTC`,
+      `${h.sent.method} ${R(h.sent.url)}`,
+      h.sent.headers.length ? `Request headers:
+${h.sent.headers.map(([k, v]) => hdr(k, v)).join("\n")}` : "Request headers: none"
+    ];
+    if (h.sent.body) lines.push(`Request body:
+${R(cut(h.sent.body))}`);
+    if (h.sent.unresolved.length) lines.push(`Unresolved variables: ${h.sent.unresolved.map((v) => `{{${v}}}`).join(", ")}`);
+    if (h.error) lines.push(`Error: ${R(h.error)}`);
+    if (h.response) {
+      const r = h.response;
+      lines.push(`\u2192 ${r.status} ${r.statusText} (${r.timeMs} ms, ${r.size} bytes)`);
+      lines.push(r.headers.length ? `Response headers:
+${r.headers.map(([k, v]) => hdr(k, v)).join("\n")}` : "Response headers: none");
+      lines.push(r.binary ? `Response body: binary, ${r.size} bytes` : `Response body:
+${R(cut(r.body))}`);
+    }
+    if (h.tests?.length) lines.push(`Tests:
+${h.tests.map((t) => `  ${t.passed ? "\u2713" : "\u2717"} ${t.name}${t.error ? ` \u2014 ${R(t.error)}` : ""}`).join("\n")}`);
+    return [lines.join("\n"), false];
+  }
+  if (name === "get_environment") {
+    const names = x.environments.map((e2) => `${e2.name}${e2.id === x.environment?.id ? " (active)" : ""}`);
+    const e = args.name ? x.environments.find((y) => y.name === String(args.name)) : x.environment;
+    if (!e) return [args.name ? `No environment \u201C${args.name}\u201D. Environments: ${names.join(", ") || "none"}.` : `No environment is active. Environments: ${names.join(", ") || "none"}.`, !!args.name];
+    const vars = e.variables.filter((v) => v.key.trim());
+    const show = (v) => v.secret ? HIDDEN : R(hide(v.key, v.value));
+    return [[
+      `Environment \u201C${e.name}\u201D${e.id === x.environment?.id ? " (active)" : ""}. All: ${names.join(", ")}.`,
+      vars.length ? vars.map((v) => `  ${v.enabled ? "" : "(off) "}${v.key} = ${show(v)}`).join("\n") : "  No variables."
+    ].join("\n"), false];
+  }
+  return [`Unknown tool ${name}`, true];
+}
+
+// src/core/mcpHandler.ts
+var BODY_LIMIT2 = 2e4;
+function mcpTools(flowNames = [], multi = false, ownWorkspace = false, editable, envNames) {
   return [
     {
       name: "list_requests",
-      description: "List the saved requests in this collection: their names, folders, methods and URLs (with {{variables}}).",
+      description: `List the saved requests${multi ? " in every collection" : " in this collection"}: their names, folders, methods and URLs (with {{variables}}).${ownWorkspace ? ` Paths starting with "assistant/" are in your own workspace, where you can create, change and delete; ${editable ? `the rest are in the user\u2019s workspace \u201C${editable}\u201D, which they let you edit too` : "the rest are the user\u2019s, which you can only send"}. Requests marked \u201Chanded to you\u201D are ones the user gave you to review and file.` : ""}`,
       inputSchema: { type: "object", properties: {} }
     },
+    getRequestTool(),
     {
       name: "send_request",
       description: "Send one saved request (with its auth, scripts and tests) and return the status, headers, body and test results.",
       inputSchema: {
         type: "object",
         properties: {
-          name: { type: "string", description: 'The request name, or "Folder/Sub/Request" when names repeat.' },
+          name: { type: "string", description: multi ? 'The path from list_requests, like "Collection/Folder/Request", or just the request name when it is unique.' : 'The request name, or "Folder/Sub/Request" when names repeat.' },
           variables: { type: "object", additionalProperties: { type: "string" }, description: "Values for {{variables}}, overriding the environment for this call." }
         },
         required: ["name"]
@@ -44316,20 +45140,23 @@ function mcpTools(flowNames = []) {
     },
     {
       name: "run_collection",
-      description: "Run every request in the collection (or one folder) in order, with tests, and return a summary with any failures.",
+      description: `Run every request in ${multi ? "a collection" : "the collection"} (or one folder) in order, with tests, and return a summary with any failures.`,
       inputSchema: {
         type: "object",
         properties: {
-          folder: { type: "string", description: 'A folder path like "Orders/Admin"; leave out for the whole collection.' },
+          folder: { type: "string", description: multi ? 'A collection, or a folder path like "Collection/Orders/Admin".' : 'A folder path like "Orders/Admin"; leave out for the whole collection.' },
           data: { type: "array", items: { type: "object" }, description: "Optional data rows: one run per row, the keys become {{variables}}." }
-        }
+        },
+        ...multi ? { required: ["folder"] } : {}
       }
     },
     ...flowNames.length ? [{
       name: "run_flow",
       description: `Run a flow (requests chained with conditions and loops) and return each step. Flows: ${flowNames.join(", ")}.`,
       inputSchema: { type: "object", properties: { name: { type: "string", enum: flowNames, description: "The flow to run." } }, required: ["name"] }
-    }] : []
+    }] : [],
+    ...ownWorkspace ? workspaceTools(editable) : [],
+    ...envNames ? logTools(envNames) : []
   ];
 }
 async function handleMcp(msg, o) {
@@ -44337,45 +45164,73 @@ async function handleMcp(msg, o) {
   const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id, error: { code, message } });
   const text = (t, isError = false) => reply({ content: [{ type: "text", text: t }], ...isError ? { isError: true } : {} });
   if (msg.id === void 0) return null;
-  const col = o.ws.collections[0];
-  const items = () => col ? collectItems(col, null, o.ws.folders, o.ws.requests) : [];
-  const pathOf2 = (it) => [...it.path.split(" / ").slice(1), it.request.name].join("/");
+  const cols = o.allCollections ? o.ws.collections : o.ws.collections.slice(0, 1);
+  const multi = !!o.allCollections;
+  const col = cols[0];
+  const own = multi && o.workspace ? o.workspace.collections : [];
+  const ownIds = new Set(own.map((c2) => c2.id));
+  const items = () => [...cols, ...own].flatMap((c2) => collectItems(c2, null, o.ws.folders, o.ws.requests));
+  const pathOf2 = (it) => (ownIds.has(it.request.collectionId ?? "") ? ASSISTANT_PREFIX : "") + [...it.path.split(" / ").slice(multi ? 0 : 1), it.request.name].join("/");
+  const colOf = (it) => [...cols, ...own].find((c2) => c2.id === it.request.collectionId) ?? col;
+  const lookup = (want) => {
+    const all = items();
+    const named = all.filter((x) => x.request.name === want);
+    const exact = all.filter((x) => pathOf2(x) === want);
+    if (exact.length > 1) return { error: `\u201C${want}\u201D names a request in your own workspace and one in the user\u2019s collection \u201Cassistant\u201D; ask the user to rename one of them.` };
+    const it = exact[0] ?? (named.length === 1 || !multi ? named[0] : void 0);
+    if (!it) return { error: named.length > 1 ? `Several requests are named \u201C${want}\u201D: ${named.map(pathOf2).join(", ")}. Use the full path.` : `No request named \u201C${want}\u201D. Use list_requests.` };
+    return { it, path: pathOf2(it) };
+  };
+  const canFlow = !!(o.engine || o.hooks?.runFlow);
+  const editable = multi ? o.workspace?.editable?.name : void 0;
+  let handedList = null;
+  const handed = () => handedList ??= items().filter((it) => it.request.handoff);
   switch (msg.method) {
     case "initialize":
       return reply({
         protocolVersion: msg.params?.protocolVersion ?? "2025-06-18",
         capabilities: { tools: {} },
         serverInfo: { name: "dispatch", version: o.version },
-        instructions: `Requests from the Dispatch collection \u201C${col?.name ?? "(none)"}\u201D${o.environment ? ` with environment \u201C${o.environment.name}\u201D` : ""}. Use list_requests to see what's there.`
+        instructions: `${multi ? `Requests from Dispatch (collections: ${cols.map((c2) => `\u201C${c2.name}\u201D`).join(", ") || "none"})` : `Requests from the Dispatch collection \u201C${col?.name ?? "(none)"}\u201D`}${o.environment ? ` with environment \u201C${o.environment.name}\u201D` : ""}. Use list_requests to see what's there, and get_request to look at one in full.${o.logs ? " To see what happened, use get_logs (the console), list_history and get_history_entry (sends and their responses), and get_environment." : ""}${multi && o.workspace ? ` You also have your own workspace (paths starting with "assistant/") where you can create, change, copy, move and delete requests; ${editable ? `you may also change the user\u2019s workspace \u201C${editable}\u201D (paths without a prefix), and the user\u2019s other requests can only be listed and sent` : "the user\u2019s requests can only be listed and sent, and the user moves what they want to keep"}.${handed().length ? ` The user handed you ${handed().length} request${handed().length > 1 ? "s" : ""} in assistant/${INBOX} to review: look at each with get_request, fix it, and file it with move_request.` : ""}` : ""}`
       });
     case "ping":
       return reply({});
     case "tools/list":
-      return reply({ tools: mcpTools(o.engine ? (o.ws.flows ?? []).map((f) => f.name) : []) });
+      return reply({ tools: mcpTools(canFlow ? (o.ws.flows ?? []).map((f) => f.name) : [], multi, !!(multi && o.workspace), editable, o.logs ? o.ws.environments.map((e) => e.name) : void 0) });
     case "tools/call": {
       const name = msg.params?.name;
       const args = msg.params?.arguments ?? {};
       if (name === "list_requests") {
-        const list = items().map((it) => `${it.request.method.padEnd(6)} ${pathOf2(it)}  ${it.request.url}`);
-        return text(list.length ? list.join("\n") : "No requests.");
+        const list = items().map((it) => `${it.request.method.padEnd(6)} ${pathOf2(it)}  ${hideInText(it.request.url)}${it.request.handoff ? `  \u2190 handed to you${it.request.handoff.note ? `: ${hideInText(it.request.handoff.note)}` : ""}` : ""}`);
+        const n = handed().length;
+        const head = n ? `The user handed you ${n} request${n > 1 ? "s" : ""} to review (marked below): get_request, fix, then move_request to file ${n > 1 ? "them" : "it"}.
+
+` : "";
+        return text(list.length ? head + list.join("\n") : "No requests.");
+      }
+      if (name === "get_request") {
+        const found = lookup(String(args.name ?? ""));
+        if ("error" in found) return text(found.error, true);
+        return text(describeRequest(found, { allCollections: [...cols, ...own], folders: o.ws.folders }));
       }
       if (name === "send_request") {
-        const want = String(args.name ?? "");
-        const all = items();
-        const it = all.find((x2) => pathOf2(x2) === want) ?? all.find((x2) => x2.request.name === want);
-        if (!it) return text(`No request named \u201C${want}\u201D. Use list_requests.`, true);
+        const found = lookup(String(args.name ?? ""));
+        if ("error" in found) return text(found.error, true);
+        const { it } = found;
         if (o.allowMethods.length && !o.allowMethods.includes(it.request.method)) return text(`${it.request.method} requests aren\u2019t allowed here (allowed: ${o.allowMethods.join(", ")}).`, true);
         const locals = new Map(Object.entries(args.variables ?? {}).map(([k, v]) => [k, String(v)]));
-        const x = await execute(it.request, { collection: col, folders: o.ws.folders, environment: o.environment, globals: o.globals, locals }, o.transport, sendOptions(it.request, o.settings), o.pipeline);
-        if (x.error && !x.response) return text(`Not sent: ${x.error}`, true);
+        const ctx = { collection: colOf(it), folders: o.ws.folders, environment: o.environment, globals: o.globals, locals };
+        const x = await execute(it.request, ctx, o.transport, sendOptions(it.request, o.settings), o.pipeline);
+        await o.hooks?.afterSend?.(x, ctx, it.request);
+        if (x.error && !x.response) return text(`Not sent: ${hideInText(x.error)}`, true);
         const r = x.response;
-        const body = r.binary ? `(binary, ${r.size} bytes)` : r.body.length > BODY_LIMIT ? `${r.body.slice(0, BODY_LIMIT)}
-\u2026 (cut at ${BODY_LIMIT} characters)` : r.body;
+        const body = r.binary ? `(binary, ${r.size} bytes)` : r.body.length > BODY_LIMIT2 ? `${r.body.slice(0, BODY_LIMIT2)}
+\u2026 (cut at ${BODY_LIMIT2} characters)` : r.body;
         const tests = x.tests.length ? `
 
 Tests:
 ${x.tests.map((t) => `${t.passed ? "\u2713" : "\u2717"} ${t.name}${t.error ? ` \u2014 ${t.error}` : ""}`).join("\n")}` : "";
-        return text(`${x.sent.method} ${x.sent.url}
+        return text(`${x.sent.method} ${hideInText(x.sent.url)}
 \u2192 ${r.status} ${r.statusText} (${r.timeMs} ms)
 ${r.headers.map(([k, v]) => `${k}: ${v}`).join("\n")}
 
@@ -44386,32 +45241,50 @@ ${body}${tests}`, r.status >= 400 || x.tests.some((t) => !t.passed));
         if (args.folder) {
           const prefix = `${String(args.folder).replace(/^\/|\/$/g, "")}/`;
           list = list.filter((x) => pathOf2(x).startsWith(prefix));
-          if (!list.length) return text(`No folder \u201C${args.folder}\u201D.`, true);
-        }
+          if (!list.length) return text(`No ${multi ? "collection or folder" : "folder"} \u201C${args.folder}\u201D.`, true);
+        } else if (multi) return text("Name a collection (or a folder in one) to run.", true);
         if (o.allowMethods.length) {
           const blocked = list.filter((x) => !o.allowMethods.includes(x.request.method));
           if (blocked.length) return text(`This run includes ${blocked.map((b) => `${b.request.method} ${b.request.name}`).join(", ")}, which aren\u2019t allowed here.`, true);
         }
         const data = Array.isArray(args.data) ? args.data.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]))) : null;
         const s = await runCollection({ items: list, iterations: data ? 0 : 1, data, delayMs: 0, stopOnFailure: false, environment: o.environment, collections: o.ws.collections, folders: o.ws.folders, globals: o.globals, settings: o.settings }, o.transport, o.pipeline);
+        await o.hooks?.afterRun?.(s);
         const bad = s.results.filter(failed);
         return text([
           `${s.requests} requests in ${s.iterations} iteration(s): ${s.testsPassed} tests passed, ${s.testsFailed} failed, ${s.failedRequests} errors, avg ${s.avgTimeMs} ms.`,
-          ...bad.slice(0, 20).map((r) => `\u2717 ${r.name}: ${r.error ?? r.tests.filter((t) => !t.passed).map((t) => `${t.name}: ${t.error ?? "failed"}`).join("; ")}`)
+          ...bad.slice(0, 20).map((r) => `\u2717 ${r.name}: ${r.error ? hideInText(r.error) : r.tests.filter((t) => !t.passed).map((t) => `${t.name}: ${t.error ?? "failed"}`).join("; ")}`)
         ].join("\n"), bad.length > 0);
       }
-      if (name === "run_flow" && o.engine) {
+      if (name === "run_flow" && canFlow) {
         const f = (o.ws.flows ?? []).find((x) => x.name === args.name);
         if (!f) return text(`No flow named \u201C${args.name}\u201D.`, true);
         if (o.allowMethods.length) {
           const blocked = f.nodes.flatMap((n) => n.type === "request" ? o.ws.requests.filter((r2) => r2.id === n.config.requestId && !o.allowMethods.includes(r2.method)) : []);
           if (blocked.length) return text(`This flow sends ${blocked.map((b) => `${b.method} ${b.name}`).join(", ")}, which aren\u2019t allowed here.`, true);
         }
-        const r = await runFlow(f, { collections: o.ws.collections, folders: o.ws.folders, requests: o.ws.requests, environment: o.environment, globals: o.globals, settings: o.settings }, o.transport, o.pipeline, o.engine);
+        const r = o.hooks?.runFlow ? await o.hooks.runFlow(f) : await runFlow(f, { collections: o.ws.collections, folders: o.ws.folders, requests: o.ws.requests, environment: o.environment, globals: o.globals, settings: o.settings }, o.transport, o.pipeline, o.engine);
         return text([
-          `${r.ok ? "Passed" : `Failed: ${r.error}`} (${r.steps.length} steps, ${r.durationMs} ms)`,
-          ...r.steps.filter((x) => x.status !== "running").slice(0, 100).map((x) => `${x.status === "ok" ? "\u2713" : x.status === "failed" ? "\u2717" : "\xB7"} ${x.label}${x.status_code !== void 0 ? ` ${x.status_code}` : ""}${x.port ? ` \u2192 ${x.port}` : ""} ${x.detail}`)
+          `${r.ok ? "Passed" : `Failed: ${hideInText(String(r.error))}`} (${r.steps.length} steps, ${r.durationMs} ms)`,
+          ...r.steps.filter((x) => x.status !== "running").slice(0, 100).map((x) => `${x.status === "ok" ? "\u2713" : x.status === "failed" ? "\u2717" : "\xB7"} ${x.label}${x.status_code !== void 0 ? ` ${x.status_code}` : ""}${x.port ? ` \u2192 ${x.port}` : ""} ${hideInText(String(x.detail ?? ""))}`)
         ].join("\n"), !r.ok);
+      }
+      if (LOG_TOOL_NAMES.includes(name) && o.logs) {
+        const shown = [...cols, ...own];
+        const redact = new Redactor(knownSecrets({
+          environments: o.ws.environments,
+          globals: o.globals,
+          collections: shown,
+          folders: o.ws.folders,
+          requests: o.ws.requests,
+          extra: [o.settings.mcpHostToken]
+        }));
+        const [t, isError] = logCall(name, args, { src: o.logs, redact, environment: o.environment, environments: o.ws.environments, collectionIds: new Set(shown.map((c2) => c2.id)) });
+        return text(t, isError);
+      }
+      if (WORKSPACE_TOOL_NAMES.includes(name) && multi && o.workspace) {
+        const [t, isError] = await workspaceCall(name, args, { w: o.workspace, folders: o.ws.folders, requests: o.ws.requests, allCollections: [...cols, ...own], allowMethods: o.allowMethods, lookup });
+        return text(t, isError);
       }
       return fail(-32602, `Unknown tool ${name}`);
     }
@@ -44419,6 +45292,9 @@ ${body}${tests}`, r.status >= 400 || x.tests.some((t) => !t.passed));
       return fail(-32601, `Method not found: ${msg.method}`);
   }
 }
+
+// src/cli/mcpServer.ts
+init_types();
 function serveMcp(o) {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin });
@@ -44441,8 +45317,13 @@ function serveMcp(o) {
   });
 }
 
+// package.json
+var version2 = "0.1.0";
+
+// src/core/version.ts
+var VERSION = version2;
+
 // src/cli/main.ts
-var VERSION = "0.5.1";
 var color = process.stdout.isTTY && !process.env.NO_COLOR;
 var c = (code) => (s) => color ? `\x1B[${code}m${s}\x1B[0m` : s;
 var green = c(32);
@@ -44538,7 +45419,7 @@ var int2 = (v, name, dflt) => {
   if (!Number.isFinite(n) || n < 0) throw new Usage(`--${name} must be a number.`);
   return n;
 };
-var time = (v, name, dflt) => {
+var time2 = (v, name, dflt) => {
   if (v === void 0) return dflt;
   const m = v.match(/^(\d+(?:\.\d+)?)(ms|s|m)?$/);
   if (!m) throw new Usage(`--${name}: use a time like 500ms, 30s or 2m.`);
@@ -44725,9 +45606,9 @@ ${r.ok ? green(bold("Passed")) : red(bold("Failed"))}  ${r.steps.length} steps, 
     const cfg = {
       items,
       virtualUsers: int2(one(opts, "vus"), "vus", 10),
-      rampUpMs: time(one(opts, "ramp-up"), "ramp-up", 0),
+      rampUpMs: time2(one(opts, "ramp-up"), "ramp-up", 0),
       mode: loops ? "iterations" : "duration",
-      durationMs: time(one(opts, "duration"), "duration", 3e4),
+      durationMs: time2(one(opts, "duration"), "duration", 3e4),
       iterations: int2(loops, "loops", 1),
       thinkTimeMs: int2(one(opts, "think"), "think", 0),
       runScripts: !opts["no-scripts"],

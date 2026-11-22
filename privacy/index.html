@@ -2,35 +2,50 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy policy | Dispatch</title>
-<meta name="description" content="Dispatch keeps your data on your device and sends nothing to us. Read the privacy policy in plain words.">
+<meta name="description" content="Dispatch keeps your data on your device. Usage and error reports are opt-in. Read the privacy policy in plain words.">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#FFF9F2" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#1A1226" media="(prefers-color-scheme: dark)">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'none'">
+<meta name="theme-color" content="#F7F7F8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F0F10" media="(prefers-color-scheme: dark)">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'none'">
 <link rel="canonical" href="https://dispatch.ogcrafts.cloud/privacy/">
 <link rel="manifest" href="/site.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml"><link rel="icon" href="/assets/icon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/assets/icon-180.png">
-<link rel="preload" href="/assets/fonts/nunito-400.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/assets/fonts/nunito-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website"><meta property="og:site_name" content="Dispatch"><meta property="og:title" content="Privacy policy | Dispatch">
-<meta property="og:description" content="Dispatch keeps your data on your device and sends nothing to us. Read the privacy policy in plain words."><meta property="og:url" content="https://dispatch.ogcrafts.cloud/privacy/"><meta property="og:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
-<meta name="twitter:card" content="summary_large_image">
+<meta property="og:description" content="Dispatch keeps your data on your device. Usage and error reports are opt-in. Read the privacy policy in plain words."><meta property="og:url" content="https://dispatch.ogcrafts.cloud/privacy/"><meta property="og:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Dispatch by OGCrafts: an API client with no account and no cloud">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Privacy policy | Dispatch"><meta name="twitter:description" content="Dispatch keeps your data on your device. Usage and error reports are opt-in. Read the privacy policy in plain words."><meta name="twitter:image" content="https://dispatch.ogcrafts.cloud/assets/og.png">
+<script src="/assets/look.js"></script>
 <link rel="stylesheet" href="/assets/site.css">
 <script src="/assets/site.js" defer></script>
 </head><body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site"><div class="wrap"><a class="brand" href="/"><img src="/assets/icon-32.png" width="32" height="32" alt="">Dispatch</a>
-<nav class="main" aria-label="Main"><a href="/#features">Features</a><a href="/download/">Download</a><a href="/cli/">CLI</a><a href="/changelog/">Changelog</a><a href="/support/">Support</a><a href="/app/">Web app</a></nav></div></header>
+<nav class="main" aria-label="Main"><a href="/#features">Features</a><a href="/download/">Download</a><a href="/cli/">CLI</a><a href="/changelog/">Changelog</a><a href="/support/">Support</a><a href="/app/">Web app</a></nav><details class="lookPicker" hidden><summary aria-label="Look and colours">Look</summary><div class="lookMenu">
+<fieldset><legend>Look</legend><label><input type="radio" name="look" value="dispatch"> Dispatch <span class="sw sw-dispatch"></span></label>
+<label><input type="radio" name="look" value="grove"> Grove <span class="sw sw-grove"></span></label>
+<label><input type="radio" name="look" value="grove-classic"> Grove classic <span class="sw sw-grove"></span></label></fieldset>
+<fieldset><legend>Colours</legend><label><input type="radio" name="theme" value="system"> System</label>
+<label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></fieldset>
+<p>The same looks as in the app (Settings, Themes). Kept in this browser only.</p></div></details></div></header>
 <main id="main">
-<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Privacy policy</p><h1>Privacy policy</h1><p class="updated">Last updated 2026-11-14.</p>
-<p>Dispatch is built so that we never receive your data. This page says what that means.</p>
+<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Privacy policy</p><h1>Privacy policy</h1><p class="updated">Last updated 2026-11-22.</p>
+<p>Dispatch is built so that we never receive your data: your collections, requests and responses stay with you. If you agree, it sends us a little anonymous information about how it is used and about its own errors. This page says exactly what.</p>
 <h2>What Dispatch stores</h2>
 <p>Your collections, requests, environments, variables, history, cookies, settings and backups. They stay on your device: in your browser&rsquo;s local storage (IndexedDB) for the web app, in the app&rsquo;s local storage for the desktop app, and in a folder you choose if you link a workspace or collection to one. We have no server that receives any of it.</p>
 <h2>Secrets</h2>
 <p>Secret variables, passwords, tokens, keys, and Authorization and Cookie headers are encrypted before they are saved, using a key that stays on the device and cannot be exported. Exports and backups you download leave secrets out.</p>
 <h2>Requests you send</h2>
-<p>When you press Send, Dispatch sends that request to the address you typed, with the headers and body you set. That is the only network traffic Dispatch makes. What the other server does with it is up to that server. Scripts you write can send requests too (<code>pm.sendRequest</code>), to the places you tell them to.</p>
+<p>When you press Send, Dispatch sends that request to the address you typed, with the headers and body you set. That is the only network traffic Dispatch makes. What the other server does with it is up to that server. Scripts you write can send requests too (<code>dx.send</code>), to the places you tell them to.</p>
 <p>A Browser login request opens your installed Chrome or Edge with a new, empty profile that is deleted afterwards, with sync and background networking turned off. It visits the pages in your steps. The values it keeps, such as cookies or a token, are stored as secret variables on this device.</p>
 <h2>What Dispatch does not do</h2>
-<ul><li>No account, sign-in or sync.</li><li>No analytics, telemetry or crash reporting.</li><li>No update check. Dispatch does not contact us or anyone else on its own.</li><li>No advertising and no trackers.</li><li>No fonts, scripts or images loaded from other sites, in the app or on this website.</li></ul>
+<ul><li>No account, sign-in or sync.</li><li>No analytics or error reports unless you opt in (below).</li><li>No update check unless you turn it on. The desktop app looks for a new version only when you choose <strong>Menu, Check for updates</strong>, or turn on <strong>Check for updates when Dispatch starts</strong> in Settings (off by default). The check asks GitHub, where the releases are published, for a small file that names the newest version; GitHub sees your IP address, as with any download. Nothing about you or your data is sent, and nothing is installed unless you agree.</li><li>No advertising and no trackers.</li><li>No fonts, scripts or images loaded from other sites, in the app or on this website.</li><li>This website sets no cookies. If you pick a look with the Look menu, your browser keeps that choice in its local storage, on your device only.</li></ul>
+<h2 id="opt-in">Usage and error reports (only if you agree)</h2>
+<p>The first time you open Dispatch it asks whether to share two things. Both are off unless you tick them, and you can change them any time in <strong>Settings, General, Privacy</strong>.</p>
+<ul><li><strong>Anonymous usage</strong>, sent to <a href="https://aptabase.com">Aptabase</a> (an analytics service built for privacy, EU or US hosting): the name of an action, such as &ldquo;sent a request&rdquo;, &ldquo;imported a file&rdquo; or &ldquo;checked for updates&rdquo;, with fixed labels like the request type (HTTP, gRPC&hellip;) or the import format; the Dispatch version, desktop or web, operating system and language; and a random session number that changes every time Dispatch starts. No user id, no cookies, and never your URLs, requests, responses, names, variables or files. See <a href="https://aptabase.com/legal/privacy">Aptabase&rsquo;s privacy policy</a>.</li>
+<li><strong>Error reports</strong>, sent to <a href="https://sentry.io">Sentry</a> (error tracking): when Dispatch itself fails, the error message and where in Dispatch&rsquo;s code it happened, plus the version, operating system and browser engine. Before it leaves your device, Dispatch blanks out web addresses, e-mail and IP addresses, tokens and other long values, and leaves out what led up to the error. See <a href="https://sentry.io/privacy/">Sentry&rsquo;s privacy policy</a>.</li></ul>
+<p>We use this only to find bugs and decide what to improve, keep it no longer than the services&rsquo; standard retention (about 90 days for error reports), and never sell or share it. The services see your IP address when they receive the data, as any server does; we don&rsquo;t store it.</p>
+<h2>Feedback</h2>
+<p><strong>Menu, Send feedback</strong> fills in a GitHub issue (public) or an e-mail to us for you to check and send yourself. Dispatch doesn&rsquo;t send it.</p>
 <h2>The web app and this website</h2>
 <p>This website and the web app at <a href="/app/">dispatch.ogcrafts.cloud/app/</a> are static files hosted on GitHub Pages. When you open them, GitHub&rsquo;s servers receive the request for the files and, like any web host, may log your IP address and browser details under <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub&rsquo;s privacy statement</a>. We do not receive those logs for individual visitors and we do not add cookies or tracking. After the files load, the web app does its work in your browser.</p>
 <h2>Your control</h2>
@@ -41,8 +56,8 @@
 </main>
 <footer class="site"><div class="wrap">
 <div><a class="brand" href="/"><img src="/assets/icon-32.png" width="32" height="32" alt="">Dispatch</a>
-<p>A local-first API client. No account, no cloud, no telemetry.</p></div>
+<p>An API client that keeps your work on your machine. No account, nothing shared unless you say yes.</p></div>
 <div><h2>Dispatch</h2><ul><li><a href="/#features">Features</a></li><li><a href="/download/">Download</a></li><li><a href="/cli/">Command line</a></li><li><a href="/app/">Open the web app</a></li><li><a href="/changelog/">Changelog</a></li><li><a href="https://github.com/og-crafts/dispatch">Source code</a></li></ul></div>
-<div><h2>Fine print</h2><ul><li><a href="/privacy/">Privacy policy</a></li><li><a href="/terms/">Terms of use</a></li><li><a href="/support/">Support</a></li><li><a href="mailto:hello@ogcrafts.cloud">hello@ogcrafts.cloud</a></li></ul></div>
+<div><h2>Fine print</h2><ul><li><a href="/privacy/">Privacy policy</a></li><li><a href="/terms/">Terms of use</a></li><li><a href="/code-signing/">Code signing policy</a></li><li><a href="/support/">Support</a></li><li><a href="mailto:hello@ogcrafts.cloud">hello@ogcrafts.cloud</a></li></ul></div>
 <small>&copy; 2026 OGCrafts. Dispatch is made by <a href="https://ogcrafts.cloud">OGCrafts</a>. Other product and format names that appear on this site are used only to say what Dispatch can import or export; they belong to their owners, and Dispatch is independent of and not affiliated with them.</small>
 </div></footer></body></html>

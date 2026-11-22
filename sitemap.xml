@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-<url><loc>https://dispatch.ogcrafts.cloud/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/download/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/cli/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/changelog/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/privacy/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/terms/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/support/</loc><lastmod>2026-11-14</lastmod></url>
-<url><loc>https://dispatch.ogcrafts.cloud/app/</loc><lastmod>2026-11-14</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/download/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/cli/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/changelog/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/privacy/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/terms/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/code-signing/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/support/</loc><lastmod>2026-11-22</lastmod></url>
+<url><loc>https://dispatch.ogcrafts.cloud/app/</loc><lastmod>2026-11-22</lastmod></url>
 </urlset>

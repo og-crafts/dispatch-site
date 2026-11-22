@@ -1,39 +1,82 @@
-/* dispatch.ogcrafts.cloud. Tokens are the app's own (src/ui/app.css). build.py reads the two token blocks below
-   (light, then dark) and checks every text/background pair in both against WCAG AA 4.5:1. Keep each block one level deep. */
-@font-face { font-family: Nunito; font-weight: 400; font-display: swap; src: url(/assets/fonts/nunito-400.woff2) format("woff2"); }
-@font-face { font-family: Nunito; font-weight: 700; font-display: swap; src: url(/assets/fonts/nunito-700.woff2) format("woff2"); }
-@font-face { font-family: Nunito; font-weight: 800; font-display: swap; src: url(/assets/fonts/nunito-800.woff2) format("woff2"); }
+/* dispatch.ogcrafts.cloud. Colours follow the app's looks (src/ui/app.css): Dispatch (graphite and white
+   surfaces, hairlines, one amber accent with graphite text on it) and Grove (mint and forest green, terracotta).
+   The app's translucent tints are flattened to hex here so build.py can read every "tokens:" block below and check
+   each text/background pair against WCAG AA 4.5:1. Keep each block one level deep. Manrope everywhere (the app's
+   Grove face), Geist Mono for code. */
+@font-face { font-family: Manrope; font-weight: 200 800; font-display: swap; src: url(/assets/fonts/manrope-latin.woff2) format("woff2"); }
 @font-face { font-family: "Geist Mono"; font-weight: 400; font-display: swap; src: url(/assets/fonts/geist-mono-400.ttf) format("truetype"); }
 
+/* Looks, as in the app (Settings → Themes): Dispatch (default), Grove and Grove classic (same colours, Grove is
+   roomier). look.js sets data-look and data-theme on <html> from the visitor's pick; without it the site follows
+   the system's light or dark. Each palette appears as the system-dark block and again for a forced "Dark";
+   build.py checks that the copies match and that every palette passes WCAG AA. */
+/* tokens: dispatch-light */
 :root {
-  --bg: #FFF9F2; --surface: #FFFFFF; --sunken: #F6EEE4; --outline: #EADCCB; --ink: #26173D; --muted: #5E4D72;
-  --primary: #5B2EE0; --on-primary: #FFFFFF; --primary-soft: #EFE8FF; --link: #4A22C4;
-  --good: #0F6648; --good-soft: #D6F5E8; --warn: #7A5200; --warn-soft: #FFE9B0; --danger: #B3261E; --info: #1D5FA8;
-  --m-get: #0F6648; --m-post: #7A5200; --m-put: #1D5FA8; --m-patch: #6B3FA0; --m-delete: #B3261E;
-  --shadow: 0 10px 28px rgba(38, 23, 61, .14);
+  --bg: #F7F7F8; --surface: #FFFFFF; --sunken: #EFEFF1; --outline: #E2E2E6; --ink: #171717; --muted: #525252;
+  --primary: #FFB020; --on-primary: #1C1C1E; --primary-soft: #FFF2DB; --link: #8A5300; --mark: #A86500;
+  --good: #15803D; --good-soft: #F0F7F2; --warn: #8A4D00; --warn-soft: #F6F0E8; --danger: #C4262B; --info: #1D5FA8;
+  --m-get: #15803D; --m-post: #8A4D00; --m-put: #1D5FA8; --m-patch: #6B3FA0; --m-delete: #C4262B;
+  --shadow: 0 8px 24px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .05); --wash: transparent;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1A1226; --surface: #241A33; --sunken: #150E1F; --outline: #3B2D4F; --ink: #F3ECFA; --muted: #C9B8DC;
-    --primary: #8E6BFF; --on-primary: #14092E; --primary-soft: #3A2D5C; --link: #C4B2FF;
-    --good: #7FDDB4; --good-soft: #17382C; --warn: #F2C46B; --warn-soft: #43330F; --danger: #FF9A92; --info: #9DC8FF;
-    --m-get: #7FDDB4; --m-post: #F2C46B; --m-put: #9DC8FF; --m-patch: #D2B4FF; --m-delete: #FF9A92;
-    --shadow: 0 10px 28px rgba(0, 0, 0, .5);
+  /* tokens: dispatch-dark */
+  :root:not([data-theme="light"]) {
+    --bg: #0F0F10; --surface: #1C1C1E; --sunken: #141415; --outline: #2C2C2F; --ink: #EDEDED; --muted: #A1A1A6;
+    --primary: #FFB020; --on-primary: #1C1C1E; --primary-soft: #3C311E; --link: #FFC24D; --mark: #FFB020;
+    --good: #4CC38A; --good-soft: #15211D; --warn: #E2A336; --warn-soft: #241E14; --danger: #F0686C; --info: #6AA8F0;
+    --m-get: #4CC38A; --m-post: #E2A336; --m-put: #6AA8F0; --m-patch: #B59CFF; --m-delete: #F0686C;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5); --wash: transparent;
   }
 }
+/* tokens: dispatch-dark */
+:root[data-theme="dark"] {
+  --bg: #0F0F10; --surface: #1C1C1E; --sunken: #141415; --outline: #2C2C2F; --ink: #EDEDED; --muted: #A1A1A6;
+  --primary: #FFB020; --on-primary: #1C1C1E; --primary-soft: #3C311E; --link: #FFC24D; --mark: #FFB020;
+  --good: #4CC38A; --good-soft: #15211D; --warn: #E2A336; --warn-soft: #241E14; --danger: #F0686C; --info: #6AA8F0;
+  --m-get: #4CC38A; --m-post: #E2A336; --m-put: #6AA8F0; --m-patch: #B59CFF; --m-delete: #F0686C;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .5); --wash: transparent;
+}
+/* tokens: grove-light */
+:root[data-look^="grove"] {
+  --bg: #F2F6EF; --surface: #FFFFFF; --sunken: #E7ECE5; --outline: #D5E2D3; --ink: #1C2A22; --muted: #4A5A50;
+  --primary: #1C2A22; --on-primary: #F2F6EF; --primary-soft: #DCE7DC; --link: #2C6E3F; --mark: #2C6E3F;
+  --good: #2C6E3F; --good-soft: #DEE8DD; --warn: #A04A1A; --warn-soft: #EBE7DC; --danger: #7A2E1C; --info: #4A5A50;
+  --m-get: #2C6E3F; --m-post: #A04A1A; --m-put: #A04A1A; --m-patch: #A04A1A; --m-delete: #7A2E1C;
+  --shadow: 0 8px 30px rgba(44, 110, 63, .1); --wash: #CFE6CF;
+}
+@media (prefers-color-scheme: dark) {
+  /* tokens: grove-dark */
+  :root[data-look^="grove"]:not([data-theme="light"]) {
+    --bg: #0A0D0B; --surface: #131D18; --sunken: #161916; --outline: #2A3F34; --ink: #F2F6EF; --muted: #A7B5AC;
+    --primary: #6EE7A0; --on-primary: #0A1A11; --primary-soft: #16271D; --link: #6EE7A0; --mark: #6EE7A0;
+    --good: #6EE7A0; --good-soft: #14231A; --warn: #F0A070; --warn-soft: #211C15; --danger: #F08A78; --info: #A7B5AC;
+    --m-get: #6EE7A0; --m-post: #F0A070; --m-put: #F0A070; --m-patch: #F0A070; --m-delete: #F08A78;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5); --wash: #12291D;
+  }
+}
+/* tokens: grove-dark */
+:root[data-look^="grove"][data-theme="dark"] {
+  --bg: #0A0D0B; --surface: #131D18; --sunken: #161916; --outline: #2A3F34; --ink: #F2F6EF; --muted: #A7B5AC;
+  --primary: #6EE7A0; --on-primary: #0A1A11; --primary-soft: #16271D; --link: #6EE7A0; --mark: #6EE7A0;
+  --good: #6EE7A0; --good-soft: #14231A; --warn: #F0A070; --warn-soft: #211C15; --danger: #F08A78; --info: #A7B5AC;
+  --m-get: #6EE7A0; --m-post: #F0A070; --m-put: #F0A070; --m-patch: #F0A070; --m-delete: #F08A78;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .5); --wash: #12291D;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { color-scheme: light dark; scroll-behavior: smooth; scroll-padding-top: 76px; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.6 Nunito, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.6 Manrope, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
 img { max-width: 100%; height: auto; }
 a { color: var(--link); text-underline-offset: 3px; }
 a:hover { text-decoration-thickness: 2px; }
-:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; border-radius: 4px; }
 code, kbd, pre, .mono { font-family: "Geist Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace; font-size: .88em; }
 code { background: var(--sunken); padding: .08em .35em; border-radius: 5px; overflow-wrap: anywhere; }
 pre { background: var(--sunken); border: 1px solid var(--outline); border-radius: 12px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; margin: 0 0 1em; }
 pre code { background: none; padding: 0; overflow-wrap: normal; }
-h1, h2, h3 { font-weight: 800; line-height: 1.15; margin: 0 0 .5em; letter-spacing: -.01em; }
+h1, h2, h3 { font-weight: 800; line-height: 1.12; margin: 0 0 .5em; letter-spacing: -.025em; }
 h1 { font-size: clamp(2.2rem, 5.2vw, 3.6rem); }
 h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); }
 h3 { font-size: 1.15rem; }
@@ -43,7 +86,7 @@ li { margin-bottom: .3em; }
 .wrap { width: min(1120px, 100% - 32px); margin-inline: auto; }
 .skip { position: absolute; left: -999px; top: 8px; background: var(--primary); color: var(--on-primary); padding: 8px 14px; border-radius: 8px; z-index: 50; }
 .skip:focus { left: 8px; }
-.eyebrow { font-weight: 800; font-size: .82rem; letter-spacing: .1em; text-transform: uppercase; color: var(--link); margin: 0 0 .6em; }
+.eyebrow { font-weight: 700; font-size: .98rem; color: var(--link); margin: 0 0 .5em; }
 .muted { color: var(--muted); }
 .lead { font-size: 1.2rem; color: var(--muted); max-width: 40em; }
 
@@ -59,10 +102,10 @@ nav.main a[aria-current="page"] { color: var(--link); background: var(--primary-
 
 /* Buttons */
 .cta-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 1.4em 0 1em; }
-.btn { display: inline-flex; align-items: center; gap: 8px; font: 800 1rem Nunito, system-ui, sans-serif; text-decoration: none; padding: 12px 20px; border-radius: 12px; border: 2px solid var(--primary); color: var(--link); background: transparent; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 700 1rem Manrope, system-ui, sans-serif; text-decoration: none; padding: 12px 20px; border-radius: 12px; border: 2px solid var(--mark); color: var(--link); background: transparent; cursor: pointer; }
 .btn:hover { background: var(--primary-soft); }
-.btn.primary { background: var(--primary); color: var(--on-primary); }
-.btn.primary:hover { filter: brightness(1.1); background: var(--primary); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.btn.primary:hover { filter: brightness(.94); background: var(--primary); }
 .btn[aria-disabled="true"] { border-color: var(--outline); color: var(--muted); cursor: default; background: var(--sunken); }
 .btn.small { padding: 7px 14px; font-size: .92rem; }
 
@@ -77,12 +120,16 @@ section.tint { background: var(--sunken); }
 .shot { margin: 0; }
 .shot img { display: block; width: 100%; border: 1px solid var(--outline); border-radius: 14px; box-shadow: var(--shadow); background: var(--surface); }
 .shot figcaption { color: var(--muted); font-size: .92rem; margin-top: 10px; }
+.video { margin: 0; }
+.video video { display: block; width: 100%; height: auto; border: 1px solid var(--outline); border-radius: 14px; box-shadow: var(--shadow); background: #0F0F10; }
+.video figcaption { color: var(--muted); font-size: .92rem; margin-top: 10px; }
 .promise { border-block: 1px solid var(--outline); background: var(--surface); }
 .promise ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 28px; justify-content: center; margin: 0; padding: 16px 0; font-weight: 700; }
 .promise li { margin: 0; }
 .promise li::before { content: "\2713"; color: var(--good); margin-right: 8px; font-weight: 800; }
 
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .card { background: var(--surface); border: 1px solid var(--outline); border-radius: 12px; padding: 20px; }
 .card h3 { margin-bottom: .4em; }
 .card p:last-child, .card ul:last-child { margin-bottom: 0; }
@@ -154,3 +201,30 @@ ul.dl { list-style: none; padding: 0; margin: 0; }
 ul.dl li { display: flex; gap: 12px 20px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--outline); margin: 0; }
 ul.dl li:first-child { border-top: 0; }
 .dl-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 260px; }
+
+/* Look picker (look.js shows it; hidden without scripts) */
+.lookPicker[hidden] { display: none; }
+.lookPicker { position: relative; }
+.lookPicker summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; font-weight: 700; font-size: .95rem; border: 1px solid var(--outline); background: var(--surface); }
+.lookPicker summary::-webkit-details-marker { display: none; }
+.lookPicker summary::after { content: "▾"; font-size: .85em; color: var(--muted); }
+.lookPicker[open] summary::after { content: "▴"; }
+.lookPicker[open] summary, .lookPicker summary:hover { background: var(--primary-soft); }
+.lookMenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 250px; background: var(--surface); border: 1px solid var(--outline); border-radius: 12px; box-shadow: var(--shadow); padding: 8px 14px 4px; }
+.lookMenu fieldset { border: 0; margin: 0 0 6px; padding: 0; }
+.lookMenu legend { font-weight: 800; font-size: .82rem; color: var(--muted); padding: 6px 0 2px; }
+.lookMenu label { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-weight: 600; font-size: .95rem; cursor: pointer; }
+.lookMenu input { accent-color: var(--mark); margin: 0; }
+.lookMenu p { font-size: .8rem; color: var(--muted); border-top: 1px solid var(--outline); padding-top: 8px; margin: 4px 0 6px; line-height: 1.4; }
+.sw { margin-left: auto; width: 34px; height: 14px; border-radius: 99px; border: 1px solid var(--outline); }
+.sw-dispatch { background: linear-gradient(90deg, #1C1C1E 0 50%, #FFB020 50%); }
+.sw-grove { background: linear-gradient(90deg, #CFE6CF 0 33%, #2C6E3F 33% 66%, #A04A1A 66%); }
+@media (max-width: 520px) { .lookMenu { right: auto; left: 0; } }
+
+/* Grove looks: the soft corner wash; "grove" (not classic) is roomier and rounder, as in the app. */
+[data-look^="grove"] body { background: radial-gradient(900px 520px at 92% 8%, var(--wash) 0%, transparent 70%), var(--bg); background-attachment: fixed; }
+[data-look^="grove"] header.site { background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
+[data-look="grove"] .btn { border-radius: 999px; }
+[data-look="grove"] :is(.card, .panel, details, .table-wrap, pre, .lookMenu, .callout) { border-radius: 22px; }
+[data-look="grove"] .shot img, [data-look="grove"] .video video { border-radius: 22px; }
+[data-look="grove"] .lookPicker summary, [data-look="grove"] nav.main a { border-radius: 999px; }
