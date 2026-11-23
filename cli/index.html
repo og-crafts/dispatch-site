@@ -30,16 +30,21 @@
 <main id="main">
 <div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Command line</p><h1>Command line</h1>
 <p class="lead"><code>dispatch-run</code> runs your Dispatch collections without the app, for CI, scripts and load checks. It uses the same code as the app.</p>
-<p><a class="btn primary" href="/downloads/dispatch-run.mjs" download>Download dispatch-run.mjs</a><code class="hash">SHA-256 963af356943b95a06b9ea398f3c4798f3e5c36f6a017f1be2aa853a6d1512f25</code></p>
+<p><a class="btn primary" href="/downloads/dispatch-run.mjs" download>Download dispatch-run.mjs</a><code class="hash">SHA-256 c6d885404b4b229a5034c3d4c563c879b5bff78280d2c722a987ea86d9166c4d</code></p>
 <p>It is one file and needs Node.js 20 or newer. No install step, no dependencies to fetch.</p>
 <h2>Run a collection</h2>
 <pre><code>node dispatch-run.mjs demo-shop.postman_collection.json -d users.csv --junit report.xml</code></pre>
 <p>It accepts a Dispatch backup, a Postman collection, or a collection folder of YAML files written by the desktop app. Requests run in order with their scripts and tests, once per row of the data file. The exit code is non-zero when a test fails, so a CI job fails with it.</p>
+<h2>Run a workspace folder</h2>
+<pre><code>node dispatch-run.mjs ./payments-workspace --env Staging --collection "Payments API"</code></pre>
+<p>A workspace kept in a folder by the desktop app (in a git repository, for example) runs as it is: pick an environment by name with <code>--env</code>, a collection with <code>--collection</code>, or a flow with <code>--flow</code>. The files never hold secret values, so a CI job passes them in:</p>
+<ul><li><code>DISPATCH_SECRET_&lt;KEY&gt;</code> fills the secret variable <code>&lt;key&gt;</code>, written in capitals with <code>_</code> for anything that isn’t a letter or digit (<code>api-key</code> → <code>DISPATCH_SECRET_API_KEY</code>). Map your CI’s own secret store onto these.</li>
+<li><code>DISPATCH_VAULT_PASSPHRASE</code> opens the folder’s encrypted secrets file, if you turned on <strong>Sync secrets</strong> in the app. <code>DISPATCH_SECRET_*</code> values win over it.</li></ul>
 <h2>Options</h2>
 <div class="table-wrap"><table><thead><tr><th scope="col">Option</th><th scope="col">What it does</th></tr></thead><tbody>
 <tr><td><code>-c, --collection</code></td><td>Collection to run (default: the only or first one)</td></tr>
 <tr><td><code>-f, --folder</code></td><td>Folder to run, like <code>Parent/Child</code>. Repeat to run a suite</td></tr>
-<tr><td><code>-e, --environment</code></td><td>Environment file, or a name inside the file</td></tr>
+<tr><td><code>-e, --env</code></td><td>Environment by name (in the file or workspace folder), or an environment file</td></tr>
 <tr><td><code>--env-var key=value</code></td><td>Set a variable. It wins over the environment</td></tr>
 <tr><td><code>-d, --data</code></td><td>CSV or JSON data file, one iteration per row</td></tr>
 <tr><td><code>-n, --iterations</code></td><td>Number of iterations</td></tr>
