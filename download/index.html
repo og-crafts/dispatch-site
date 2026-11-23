@@ -36,7 +36,12 @@
 <h2 id="unsigned">The installers are not signed yet</h2>
 <div class="callout">Windows and macOS will warn you the first time you open Dispatch. That is expected for an app without a paid code-signing certificate, and it does not mean the file is damaged.</div>
 <h3>Windows</h3><p>SmartScreen shows &ldquo;Windows protected your PC&rdquo;. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
-<h3>macOS</h3><p>Gatekeeper says it cannot verify the app. Open the <code>.dmg</code> and drag Dispatch to Applications. Then Control-click the app, choose <strong>Open</strong>, and confirm. If that option is missing, open <strong>System Settings, Privacy &amp; Security</strong> and choose <strong>Open Anyway</strong> next to the message about Dispatch.</p>
+<h3>macOS</h3><p>macOS says &ldquo;Apple could not verify Dispatch is free of malware&rdquo;. To open it the first time:</p>
+<ol><li>Open the <code>.dmg</code> and drag Dispatch to Applications. Open Dispatch once and choose <strong>Done</strong> (not Move to Trash).</li>
+<li>Open <strong>System Settings, Privacy &amp; Security</strong>, scroll down to the message about Dispatch and choose <strong>Open Anyway</strong>. Confirm with your password or Touch ID.</li>
+<li>Open Dispatch again and choose <strong>Open</strong>. macOS remembers this, so you only do it once.</li></ol>
+<p>If <strong>Open Anyway</strong> isn&rsquo;t there, run this in Terminal, then open Dispatch as usual:</p>
+<pre><code>xattr -dr com.apple.quarantine /Applications/Dispatch.app</code></pre>
 <h3>Linux</h3><p>There is no signing warning. Install the <code>.deb</code> with <code>sudo apt install ./file.deb</code> or the <code>.rpm</code> with <code>sudo dnf install ./file.rpm</code>. For an AppImage, make it executable (<code>chmod +x file.AppImage</code>) and run it.</p>
 <p>Check the SHA-256 checksum next to each download before you open it. The desktop app can update itself: <strong>Menu, Check for updates</strong>. Updates are checked against Dispatch&rsquo;s own signing key before they install. If you installed a preview from before 0.1.0, it can&rsquo;t update to 0.1.0: export a backup in it (<strong>Menu, Export backup</strong>), uninstall it, install 0.1.0 from this page and import the backup.</p>
 <p>The <a href="/code-signing/">code signing policy</a> says how Dispatch&rsquo;s installers are built and how you can check that a download is genuine.</p></div></div>
