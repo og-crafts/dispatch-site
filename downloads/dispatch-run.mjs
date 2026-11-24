@@ -381,7 +381,7 @@ function normalizeFolder(f) {
 function newEnvironment(name = "New environment") {
   return { id: uid(), name, variables: [], updatedAt: Date.now() };
 }
-var METHODS, DEFAULT_SPACE, ASSISTANT_SPACE, defaultSettings, counter, kv, emptyAuth, emptyBody, emptyScripts, emptySettings, bySort;
+var METHODS, DEFAULT_SPACE, ASSISTANT_SPACE, spaceOf, defaultSettings, counter, kv, emptyAuth, emptyBody, emptyScripts, emptySettings, bySort;
 var init_types = __esm({
   "src/core/types.ts"() {
     "use strict";
@@ -389,6 +389,7 @@ var init_types = __esm({
     METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
     DEFAULT_SPACE = { id: "default", name: "My workspace" };
     ASSISTANT_SPACE = { id: "assistant", name: "AI assistant" };
+    spaceOf = (x) => x.workspaceId || DEFAULT_SPACE.id;
     defaultSettings = {
       activeEnvId: null,
       theme: "system",
@@ -8131,6 +8132,104 @@ var require_dist = __commonJS({
   }
 });
 
+// src/core/cookies.ts
+function parseSetCookie(header) {
+  const [pair, ...attrs] = header.split(";");
+  const eq = pair.indexOf("=");
+  const c2 = { name: (eq >= 0 ? pair.slice(0, eq) : pair).trim(), value: eq >= 0 ? pair.slice(eq + 1).trim() : "" };
+  for (const a of attrs) {
+    const i = a.indexOf("=");
+    const k = (i >= 0 ? a.slice(0, i) : a).trim().toLowerCase();
+    const v = i >= 0 ? a.slice(i + 1).trim() : "";
+    if (k === "domain") c2.domain = v.replace(/^\./, "");
+    else if (k === "path") c2.path = v;
+    else if (k === "expires") c2.expires = v;
+    else if (k === "max-age") c2.maxAge = Number(v);
+    else if (k === "httponly") c2.httpOnly = true;
+    else if (k === "secure") c2.secure = true;
+    else if (k === "samesite") c2.sameSite = v;
+  }
+  return c2;
+}
+var CookieJar, jarKey, cookieKey;
+var init_cookies = __esm({
+  "src/core/cookies.ts"() {
+    "use strict";
+    init_types();
+    CookieJar = class {
+      cookies = [];
+      store(url, headers, now = Date.now()) {
+        let u;
+        try {
+          u = new URL(url);
+        } catch {
+          return;
+        }
+        for (const [k, v] of headers) {
+          if (k.toLowerCase() !== "set-cookie") continue;
+          const c2 = parseSetCookie(v);
+          if (!c2.name) continue;
+          const host = (c2.domain ?? u.hostname).toLowerCase();
+          if (c2.domain && !(u.hostname === host || u.hostname.endsWith(`.${host}`))) continue;
+          const path = c2.path ?? (u.pathname.replace(/\/[^/]*$/, "") || "/");
+          const expiresAt = c2.maxAge != null ? now + c2.maxAge * 1e3 : c2.expires ? Date.parse(c2.expires) : null;
+          this.cookies = this.cookies.filter((x) => !(x.name === c2.name && x.host === host && (x.path ?? "/") === path));
+          if (expiresAt !== null && expiresAt <= now) {
+            this.changed();
+            continue;
+          }
+          this.cookies.push({ ...c2, host, path, expiresAt });
+          this.changed();
+        }
+      }
+      /** The Cookie header for a URL, or null. */
+      header(url, now = Date.now()) {
+        let u;
+        try {
+          u = new URL(url);
+        } catch {
+          return null;
+        }
+        this.cookies = this.cookies.filter((c2) => c2.expiresAt === null || c2.expiresAt > now);
+        const host = u.hostname.toLowerCase();
+        const match = this.cookies.filter((c2) => (host === c2.host || host.endsWith(`.${c2.host}`)) && (u.pathname === c2.path || u.pathname.startsWith(c2.path.endsWith("/") ? c2.path : `${c2.path}/`) || c2.path === "/") && (!c2.secure || u.protocol === "https:"));
+        return match.length ? match.map((c2) => `${c2.name}=${c2.value}`).join("; ") : null;
+      }
+      list() {
+        return this.cookies.map(({ host, expiresAt: _e, ...c2 }) => ({ ...c2, domain: c2.domain ?? host }));
+      }
+      clear() {
+        this.cookies = [];
+        this.changed();
+      }
+      /** Every stored cookie with its host and expiry, for the cookie manager and for saving. */
+      entries() {
+        return this.cookies.map((c2) => ({ ...c2 }));
+      }
+      /** Adds or replaces a cookie (same host, name and path). */
+      set(c2) {
+        this.cookies = this.cookies.filter((x) => !(x.name === c2.name && x.host === c2.host && (x.path ?? "/") === (c2.path ?? "/")));
+        this.cookies.push({ ...c2, path: c2.path || "/" });
+        this.changed();
+      }
+      remove(host, name, path = "/") {
+        this.cookies = this.cookies.filter((x) => !(x.name === name && x.host === host && (x.path ?? "/") === path));
+        this.changed();
+      }
+      load(list) {
+        this.cookies = list.filter((c2) => c2 && c2.name && c2.host);
+      }
+      /** Called after every change (the app saves the jar). */
+      onChange;
+      changed() {
+        this.onChange?.();
+      }
+    };
+    jarKey = (environmentId, workspaceId) => environmentId ?? `none:${workspaceId}`;
+    cookieKey = (ctx) => ctx.environment ? ctx.environment.id : ctx.collection ? jarKey(null, spaceOf(ctx.collection)) : ctx.jar;
+  }
+});
+
 // src/core/transport.ts
 function base64ToBytes(b642) {
   const bin = atob(b642);
@@ -8220,10 +8319,18 @@ var init_transport = __esm({
       }
     };
     CookieTransport = class {
-      constructor(inner, jar, enabled = () => true) {
+      constructor(inner, jars, enabled = () => true, current) {
         this.inner = inner;
-        this.jar = jar;
+        this.jars = jars;
         this.enabled = enabled;
+        this.current = current;
+      }
+      currentJar() {
+        return this.current?.() ?? "";
+      }
+      /** The jar with this key; a single jar serves every key (the CLI). */
+      jar(key) {
+        return typeof this.jars === "function" ? this.jars(key) : this.jars;
       }
       get label() {
         return this.inner.label;
@@ -8233,13 +8340,14 @@ var init_transport = __esm({
       }
       async send(p, opts) {
         const on = this.enabled();
+        const jar = this.jar(opts.jar);
         let req = p;
         if (on && !p.headers.some(([k]) => k.toLowerCase() === "cookie")) {
-          const c2 = this.jar.header(p.url);
+          const c2 = jar.header(p.url);
           if (c2) req = { ...p, headers: [...p.headers, ["Cookie", c2]] };
         }
         const res = await this.inner.send(req, opts);
-        if (on) this.jar.store(p.url, res.headers);
+        if (on) jar.store(p.url, res.headers);
         return res;
       }
     };
@@ -8284,8 +8392,10 @@ function prepareContext(ctx, req) {
     handoff: req.handoff?.variables ?? null
   };
 }
-async function execute(req, ctx, transport, opts, pipeline = {}) {
-  const out = { sent: prepare(req, prepareContext(ctx, req)), response: null, error: null, tests: [], logs: [], changes: noChanges() };
+async function execute(req, ctx, transport, sendOpts, pipeline = {}) {
+  ctx.jar ??= transport.currentJar?.();
+  const opts = { ...sendOpts, jar: sendOpts.jar ?? cookieKey(ctx) };
+  const out = { sent: prepare(req, prepareContext(ctx, req)), response: null, error: null, tests: [], logs: [], changes: noChanges(), base: { environment: ctx.environment?.variables ?? [], collection: ctx.collection?.variables ?? [], globals: ctx.globals } };
   if (req.protocol === "browser") {
     if (!pipeline.browser) {
       out.error = "Browser login needs the desktop app or dispatch-run (a web page can\u2019t start a browser).";
@@ -8330,6 +8440,7 @@ var noChanges;
 var init_runtime = __esm({
   "src/core/runtime.ts"() {
     "use strict";
+    init_cookies();
     init_prepare();
     init_transport();
     noChanges = () => ({ environment: null, collection: null, globals: null });
@@ -12377,6 +12488,7 @@ var init_chai = __esm({
 var scripts_exports = {};
 __export(scripts_exports, {
   compileWithFunction: () => compileWithFunction,
+  fmt: () => fmt,
   runScript: () => runScript
 });
 function headerList(list) {
@@ -42446,6 +42558,7 @@ __export(scriptPipeline_exports, {
   SCRIPT_TIMEOUT_MS: () => SCRIPT_TIMEOUT_MS,
   SkipRequest: () => SkipRequest,
   applyVars: () => applyVars,
+  mergeVars: () => mergeVars,
   scriptPipeline: () => scriptPipeline
 });
 function applyVars(rows, next) {
@@ -42463,6 +42576,18 @@ function applyVars(rows, next) {
   }
   for (const [k, v] of Object.entries(next)) if (!seen.has(k)) out.push({ id: `v-${k}-${Math.random().toString(36).slice(2, 8)}`, key: k, value: v, enabled: true });
   return out;
+}
+function mergeVars(before, after, now) {
+  let out = now;
+  for (const a of after) {
+    const b = before.find((x) => x.id === a.id);
+    if (b && b.value === a.value) continue;
+    const same = out.find((x) => x.id === a.id) ?? (b ? void 0 : out.filter((x) => x.enabled && x.key.trim() === a.key.trim()).pop());
+    if (same) out = out.map((x) => x === same ? { ...x, value: a.value, ...a.secret && !b ? { secret: true } : {} } : x);
+    else if (!b) out = [...out, a];
+  }
+  const gone = before.filter((b) => !after.some((a) => a.id === b.id));
+  return gone.length ? out.filter((x) => !gone.some((b) => b.id === x.id)) : out;
 }
 function pmRequestOf(req) {
   const raw = ["json", "text", "xml", "html", "graphql"].includes(req.body.kind);
@@ -42495,7 +42620,7 @@ function applyPmRequest(req, before, after) {
   return next;
 }
 function scriptPipeline(o) {
-  const host = {
+  const hostFor = (ctx) => ({
     async sendRequest(r) {
       const method = METHODS.includes(r.method.toUpperCase()) ? r.method.toUpperCase() : "GET";
       const p = {
@@ -42505,10 +42630,10 @@ function scriptPipeline(o) {
         body: r.body.mode === "none" ? null : r.body.raw,
         unresolved: []
       };
-      const res = await o.transport.send(p, o.sendOptions());
+      const res = await o.transport.send(p, { ...o.sendOptions(), jar: cookieKey(ctx) });
       return { code: res.status, status: res.statusText, headers: res.headers, body: res.body, responseTime: res.timeMs, responseSize: res.size };
     }
-  };
+  });
   const scriptsFor = (req, ctx, phase) => {
     const folders = folderChain(ctx.folders, req.folderId).reverse();
     const list = [];
@@ -42531,6 +42656,7 @@ function scriptPipeline(o) {
     let vars = start;
     let request = pmReq;
     let skip = false;
+    const host = hostFor(ctx);
     const it = o.iteration?.() ?? { iteration: 0, iterationCount: 1 };
     for (const s of scripts) {
       const r = await o.engine.run({ phase, source: s.source, code: s.code, request, response, vars, info: { requestName: req.name, requestId: req.id, ...it } }, host);
@@ -42589,6 +42715,7 @@ var init_scriptPipeline = __esm({
     init_types();
     init_transport();
     init_runtime();
+    init_cookies();
     init_url();
     SCRIPT_TIMEOUT_MS = 1e4;
     InlineEngine = class {
@@ -43534,6 +43661,8 @@ async function runCollection(cfg, transport, pipeline, hooks = {}) {
   const sleep = hooks.sleep ?? defaultSleep;
   const iterations = cfg.data?.length && !cfg.iterations ? cfg.data.length : Math.max(1, cfg.iterations);
   let environment = cfg.environment ? structuredClone(cfg.environment) : null;
+  const jar = transport.currentJar?.();
+  const changed = /* @__PURE__ */ new Set();
   const collections = new Map(cfg.collections.map((c2) => [c2.id, structuredClone(c2)]));
   let globals = structuredClone(cfg.globals);
   const results = [];
@@ -43562,12 +43691,14 @@ async function runCollection(cfg, transport, pipeline, hooks = {}) {
         environment,
         globals,
         data,
-        locals
+        locals,
+        jar
       };
       const it0 = it;
       const pl = { ...pipeline };
       const x = await execute(item.request, ctx, transport, sendOptions(item.request, cfg.settings, hooks.signal), pl);
       if (x.changes.environment && environment) environment = { ...environment, variables: x.changes.environment };
+      if (x.changes.collection && ctx.collection) changed.add(ctx.collection.id);
       if (x.changes.collection && ctx.collection) collections.set(ctx.collection.id, { ...ctx.collection, variables: x.changes.collection });
       if (x.changes.globals) globals = x.changes.globals;
       const r = {
@@ -43620,7 +43751,7 @@ async function runCollection(cfg, transport, pipeline, hooks = {}) {
     stopped,
     results,
     finalEnvironment: environment?.variables ?? null,
-    finalCollections: Object.fromEntries([...collections].map(([id, c2]) => [id, c2.variables])),
+    finalCollections: Object.fromEntries([...collections].filter(([id]) => changed.has(id)).map(([id, c2]) => [id, c2.variables])),
     finalGlobals: globals
   };
 }
@@ -43755,6 +43886,7 @@ async function runLoad(cfg, transport, pipeline, hooks = {}) {
     active++;
     activity.push([now() - start, 1]);
     let environment = cfg.environment ? structuredClone(cfg.environment) : null;
+    const jar = transport.currentJar?.();
     const collections = new Map(cfg.collections.map((c2) => [c2.id, structuredClone(c2)]));
     let globals = cfg.globals;
     let iteration = 0;
@@ -43772,7 +43904,8 @@ async function runLoad(cfg, transport, pipeline, hooks = {}) {
             environment,
             globals,
             data,
-            locals
+            locals,
+            jar
           };
           const t0 = now();
           const x = await execute(item.request, ctx, transport, sendOptions(item.request, cfg.settings, ctrl.signal), pl);
@@ -43819,97 +43952,10 @@ function samplesCsv(samples) {
 // src/cli/main.ts
 init_scriptPipeline();
 init_transport();
-
-// src/core/cookies.ts
-function parseSetCookie(header) {
-  const [pair, ...attrs] = header.split(";");
-  const eq = pair.indexOf("=");
-  const c2 = { name: (eq >= 0 ? pair.slice(0, eq) : pair).trim(), value: eq >= 0 ? pair.slice(eq + 1).trim() : "" };
-  for (const a of attrs) {
-    const i = a.indexOf("=");
-    const k = (i >= 0 ? a.slice(0, i) : a).trim().toLowerCase();
-    const v = i >= 0 ? a.slice(i + 1).trim() : "";
-    if (k === "domain") c2.domain = v.replace(/^\./, "");
-    else if (k === "path") c2.path = v;
-    else if (k === "expires") c2.expires = v;
-    else if (k === "max-age") c2.maxAge = Number(v);
-    else if (k === "httponly") c2.httpOnly = true;
-    else if (k === "secure") c2.secure = true;
-    else if (k === "samesite") c2.sameSite = v;
-  }
-  return c2;
-}
-var CookieJar = class {
-  cookies = [];
-  store(url, headers, now = Date.now()) {
-    let u;
-    try {
-      u = new URL(url);
-    } catch {
-      return;
-    }
-    for (const [k, v] of headers) {
-      if (k.toLowerCase() !== "set-cookie") continue;
-      const c2 = parseSetCookie(v);
-      if (!c2.name) continue;
-      const host = (c2.domain ?? u.hostname).toLowerCase();
-      if (c2.domain && !(u.hostname === host || u.hostname.endsWith(`.${host}`))) continue;
-      const path = c2.path ?? (u.pathname.replace(/\/[^/]*$/, "") || "/");
-      const expiresAt = c2.maxAge != null ? now + c2.maxAge * 1e3 : c2.expires ? Date.parse(c2.expires) : null;
-      this.cookies = this.cookies.filter((x) => !(x.name === c2.name && x.host === host && (x.path ?? "/") === path));
-      if (expiresAt !== null && expiresAt <= now) {
-        this.changed();
-        continue;
-      }
-      this.cookies.push({ ...c2, host, path, expiresAt });
-      this.changed();
-    }
-  }
-  /** The Cookie header for a URL, or null. */
-  header(url, now = Date.now()) {
-    let u;
-    try {
-      u = new URL(url);
-    } catch {
-      return null;
-    }
-    this.cookies = this.cookies.filter((c2) => c2.expiresAt === null || c2.expiresAt > now);
-    const host = u.hostname.toLowerCase();
-    const match = this.cookies.filter((c2) => (host === c2.host || host.endsWith(`.${c2.host}`)) && (u.pathname === c2.path || u.pathname.startsWith(c2.path.endsWith("/") ? c2.path : `${c2.path}/`) || c2.path === "/") && (!c2.secure || u.protocol === "https:"));
-    return match.length ? match.map((c2) => `${c2.name}=${c2.value}`).join("; ") : null;
-  }
-  list() {
-    return this.cookies.map(({ host, expiresAt: _e, ...c2 }) => ({ ...c2, domain: c2.domain ?? host }));
-  }
-  clear() {
-    this.cookies = [];
-    this.changed();
-  }
-  /** Every stored cookie with its host and expiry, for the cookie manager and for saving. */
-  entries() {
-    return this.cookies.map((c2) => ({ ...c2 }));
-  }
-  /** Adds or replaces a cookie (same host, name and path). */
-  set(c2) {
-    this.cookies = this.cookies.filter((x) => !(x.name === c2.name && x.host === c2.host && (x.path ?? "/") === (c2.path ?? "/")));
-    this.cookies.push({ ...c2, path: c2.path || "/" });
-    this.changed();
-  }
-  remove(host, name, path = "/") {
-    this.cookies = this.cookies.filter((x) => !(x.name === name && x.host === host && (x.path ?? "/") === path));
-    this.changed();
-  }
-  load(list) {
-    this.cookies = list.filter((c2) => c2 && c2.name && c2.host);
-  }
-  /** Called after every change (the app saves the jar). */
-  onChange;
-  changed() {
-    this.onChange?.();
-  }
-};
+init_cookies();
 
 // src/core/auth.ts
+init_cookies();
 init_runtime();
 init_prepare();
 init_vars();
@@ -44104,7 +44150,7 @@ function authPipeline(base, transport, sendOpts) {
       } else if (a.kind === "awsv4") {
         out = await signAwsV4(out, a);
       } else if (a.kind === "oauth2" && a.refreshToken && a.expiresAt && a.expiresAt < Date.now() + 1e4) {
-        const t = await refreshToken(a, transport, sendOpts?.() ?? { timeoutMs: 3e4, followRedirects: true, insecureTls: false });
+        const t = await refreshToken(a, transport, { ...sendOpts?.() ?? { timeoutMs: 3e4, followRedirects: true, insecureTls: false }, jar: cookieKey(ctx) });
         out = { ...out, headers: [...out.headers.filter(([k]) => k.toLowerCase() !== "authorization"), ["Authorization", `Bearer ${t.accessToken}`]] };
         const patch = { accessToken: t.accessToken, refreshToken: t.refreshToken, expiresAt: t.expiresAt };
         const folder = folderChain(ctx.folders, req.folderId).find((f) => f.auth.kind !== "inherit");
@@ -44158,7 +44204,7 @@ function browserHook(launcher, jar) {
         out.changes.globals = ctx.globals;
       }
     }
-    const j = jar?.();
+    const j = jar?.(ctx);
     if (j) for (const c2 of r.cookies) j.set({ host: c2.domain, name: c2.name, value: c2.value, path: c2.path || "/", secure: c2.secure, httpOnly: c2.httpOnly, expiresAt: c2.expires > 0 ? c2.expires * 1e3 : null });
     const body = JSON.stringify({ ok: r.ok, finalUrl: r.finalUrl, extracted: Object.keys(r.extracted), cookies: r.cookies.length, steps: r.steps }, null, 2);
     const response = { status: r.ok ? 200 : 0, statusText: r.ok ? "Logged in" : "Failed", headers: [["content-type", "application/json"]], body, binary: false, size: body.length, timeMs: Date.now() - t0 };
@@ -44445,16 +44491,22 @@ function checkFlow(f, requests) {
 async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
   const started = Date.now();
   const sleep = hooks.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const run = { ok: true, error: null, steps: [], logs: [], environment: null, globals: w.globals, vars: {}, durationMs: 0 };
+  const run = { ok: true, error: null, steps: [], logs: [], environment: null, globals: w.globals, collections: {}, vars: {}, durationMs: 0 };
   const problems = checkFlow(f, w.requests);
   if (problems.length) return { ...run, ok: false, error: problems.join(" ") };
   const locals = /* @__PURE__ */ new Map();
+  const jar = transport.currentJar?.();
+  const collection = (id) => {
+    const c2 = w.collections.find((x) => x.id === id);
+    return c2 ? { ...c2, variables: run.collections[id] ?? c2.variables } : null;
+  };
   const ctx = (req) => ({
-    collection: req?.collectionId ? w.collections.find((c2) => c2.id === req.collectionId) ?? null : null,
+    collection: req?.collectionId ? collection(req.collectionId) : null,
     folders: w.folders,
     environment,
     globals: run.globals,
-    locals
+    locals,
+    jar
   });
   let environment = w.environment ? structuredClone(w.environment) : null;
   let last = null;
@@ -44506,6 +44558,7 @@ async function runFlow(f, w, transport, pipeline, engine, hooks = {}) {
             const c2 = ctx(req);
             const x = await execute(req, c2, transport, sendOptions(req, w.settings, hooks.signal), pipeline);
             environment = c2.environment;
+            if (x.changes.collection && req.collectionId) run.collections[req.collectionId] = x.changes.collection;
             if (x.changes.globals) run.globals = x.changes.globals;
             run.logs.push(...x.logs);
             if (x.response) last = x.response;
@@ -45486,7 +45539,7 @@ function serveMcp(o) {
 }
 
 // package.json
-var version2 = "0.1.0";
+var version2 = "0.2.0";
 
 // src/core/version.ts
 var VERSION = version2;
@@ -45780,7 +45833,7 @@ async function main(argv) {
   const settings = { ...defaultSettings, timeoutMs: int2(one(opts, "timeout"), "timeout", 3e4), insecureTls: !!opts.insecure };
   const transport = new CookieTransport(new FetchTransport(), new CookieJar());
   const scripts = opts["no-scripts"] ? {} : scriptPipeline({ engine: new InlineEngine(compileInVm), transport, sendOptions: () => ({ timeoutMs: settings.timeoutMs, followRedirects: true, insecureTls: settings.insecureTls }) });
-  const pipeline = { ...authPipeline(scripts, transport), browser: browserHook(nodeLauncher, () => transport.jar) };
+  const pipeline = { ...authPipeline(scripts, transport), browser: browserHook(nodeLauncher, () => transport.jar()) };
   if (isMcp) {
     console.error(`dispatch-run ${VERSION}: serving ${ws.collections[0]?.name ?? file} over MCP (stdio)`);
     await serveMcp({
