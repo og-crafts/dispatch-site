@@ -28,7 +28,7 @@
 <label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></fieldset>
 <p>The same looks as in the app (Settings, Themes). Kept in this browser only.</p></div></details></div></header>
 <main id="main">
-<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Code signing policy</p><h1>Code signing policy</h1><p class="updated">Last updated 2026-11-22.</p>
+<div class="article"><div class="wrap"><p class="crumbs"><a href="/">Home</a> / Code signing policy</p><h1>Code signing policy</h1><p class="updated">Last updated 2026-11-25.</p>
 <p>The Windows and macOS installers of Dispatch are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn the first time you open Dispatch. The <a href="/download/#unsigned">download page</a> explains how to open it. This page says how the installers are made and how you can check that the file you have is the one we published.</p>
 <h2>How the installers are made</h2>
 <ul><li>Every installer is built by GitHub Actions on GitHub-hosted runners, directly from the source code in the public repository <a href="https://github.com/og-crafts/dispatch">og-crafts/dispatch</a>, when a version tag is pushed.</li>
@@ -42,7 +42,7 @@
 <li>Releases: <a href="https://github.com/orgs/og-crafts/people?query=role%3Aowner">owners of the og-crafts organization</a> check and publish every release by hand.</li></ul>
 <p>Everyone in these roles uses multi-factor authentication for GitHub.</p>
 <h2>Privacy</h2>
-<p>This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. Requests go only to the addresses you send them to. Anonymous usage and error reports are sent only if you agree when Dispatch first starts (both unticked; changeable in Settings), and the update check runs only when you ask or turn it on. The <a href="/privacy/">privacy policy</a> has the details.</p>
+<p>Apart from looking for new versions on GitHub (described below, can be turned off), this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. Requests go to the addresses you send them to, and, from 0.3.0, if you add a connection to the Dispatch assistant, what you ask it goes to the model you chose (never to us). Anonymous usage and error reports are sent only if you agree when Dispatch first starts (both unticked; changeable in Settings), and the desktop app looks for new versions on GitHub unless you turn that off (it tells you first and sends no workspace data). The <a href="/privacy/">privacy policy</a> has the details.</p>
 <h2>Report a problem</h2>
 <p>If you think a Dispatch file is harmful or was not built from this project&rsquo;s source, write to <a href="mailto:hello@ogcrafts.cloud">hello@ogcrafts.cloud</a>.</p></div></div>
 </main>

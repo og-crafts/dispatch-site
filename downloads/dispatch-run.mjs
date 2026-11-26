@@ -410,10 +410,11 @@ var init_types = __esm({
       mcpHostMethods: "GET,HEAD",
       mcpHostWorkspace: false,
       mcpHostLogs: false,
-      updateCheckOnStart: false,
+      autoUpdateCheck: true,
       telemetryAsked: false,
       shareUsage: false,
-      shareErrors: false
+      shareErrors: false,
+      keepChats: true
     };
     counter = 0;
     kv = (key = "", value = "", enabled = true, extra = {}) => ({ id: uid(), key, value, enabled, ...extra });
@@ -16381,7 +16382,7 @@ var require_lodash = __commonJS({
         function takeWhile(array, predicate) {
           return array && array.length ? baseWhile(array, getIteratee(predicate, 3)) : [];
         }
-        var union = baseRest(function(arrays) {
+        var union2 = baseRest(function(arrays) {
           return baseUniq(baseFlatten(arrays, 1, isArrayLikeObject, true));
         });
         var unionBy = baseRest(function(arrays) {
@@ -18060,7 +18061,7 @@ var require_lodash = __commonJS({
         lodash.toPlainObject = toPlainObject;
         lodash.transform = transform;
         lodash.unary = unary;
-        lodash.union = union;
+        lodash.union = union2;
         lodash.unionBy = unionBy;
         lodash.unionWith = unionWith;
         lodash.uniq = uniq;
@@ -44700,13 +44701,14 @@ var fields = {
   docs: { type: "string", description: "Notes shown with the request (Markdown)." },
   ...scriptFields("request")
 };
-function workspaceTools(editable) {
-  const where = `a path like "assistant/Orders" or "assistant/Orders/Admin"${editable ? `, or "Orders/Admin" for the user\u2019s workspace \u201C${editable}\u201D, which they let you edit` : ""}: the first part is the collection; collections and folders that don\u2019t exist yet are made`;
-  const yours = editable ? `your own workspace ("assistant/\u2026") or the user\u2019s workspace \u201C${editable}\u201D` : 'your own workspace ("assistant/\u2026")';
+function workspaceTools(editable, own = true) {
+  const ex = (p) => own ? `assistant/${p}` : p;
+  const where = !own ? 'a path like "Orders" or "Orders/Admin": the first part is the collection; collections and folders that don\u2019t exist yet are made' : `a path like "assistant/Orders" or "assistant/Orders/Admin"${editable ? `, or "Orders/Admin" for the user\u2019s workspace \u201C${editable}\u201D, which they let you edit` : ""}: the first part is the collection; collections and folders that don\u2019t exist yet are made`;
+  const yours = !own ? "the open workspace" : editable ? `your own workspace ("assistant/\u2026") or the user\u2019s workspace \u201C${editable}\u201D` : 'your own workspace ("assistant/\u2026")';
   return [
     {
       name: "create_request",
-      description: `Save a new HTTP request in ${yours}. It is not sent; use send_request for that.${editable ? "" : " You can\u2019t write to the user\u2019s workspaces; they move what they want to keep."}`,
+      description: `Save a new HTTP request in ${yours}. It is not sent${own ? "; use send_request for that" : ""}.${editable || !own ? "" : " You can\u2019t write to the user\u2019s workspaces; they move what they want to keep."}`,
       inputSchema: {
         type: "object",
         properties: { folder: { type: "string", description: `Where to save it: ${where}.` }, name: { type: "string" }, ...fields, method: { ...fields.method, description: "Defaults to GET." } },
@@ -44715,11 +44717,11 @@ function workspaceTools(editable) {
     },
     {
       name: "update_request",
-      description: `Change a request in ${yours}. Only the fields given change.${editable ? "" : " The user\u2019s saved requests can\u2019t be changed: copy_request one first and change the copy."}`,
+      description: `Change a request in ${yours}. Only the fields given change.${editable || !own ? "" : " The user\u2019s saved requests can\u2019t be changed: copy_request one first and change the copy."}`,
       inputSchema: {
         type: "object",
         properties: {
-          name: { type: "string", description: 'Its path, like "assistant/Orders/Create order".' },
+          name: { type: "string", description: `Its path, like "${ex("Orders/Create order")}".` },
           newName: { type: "string", description: "Rename it." },
           ...fields,
           reviewed: { type: "boolean", description: "true clears the \u201Chanded to you\u201D flag without moving it (move_request clears it too)." }
@@ -44729,7 +44731,7 @@ function workspaceTools(editable) {
     },
     {
       name: "copy_request",
-      description: `Copy a request (the user\u2019s or your own) into ${yours}, with its auth, scripts and settings, so you can change and send the copy.`,
+      description: `Copy a request ${own ? "(the user\u2019s or your own) " : ""}into ${yours}, with its auth, scripts and settings, so you can change ${own ? "and send " : ""}the copy.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -44742,11 +44744,11 @@ function workspaceTools(editable) {
     },
     {
       name: "move_request",
-      description: `Move (and optionally rename) a request within ${yours}, e.g. to file one the user handed you from assistant/${INBOX} into a proper collection. Its auth comes along, and a collection made for it gets the original collection\u2019s variables. Clears the \u201Chanded to you\u201D flag.`,
+      description: `Move (and optionally rename) a request within ${yours}, e.g. to file ${own ? `one the user handed you from assistant/${INBOX} ` : "it "}into a proper collection. Its auth comes along, and a collection made for it gets the original collection\u2019s variables.${own ? " Clears the \u201Chanded to you\u201D flag." : ""}`,
       inputSchema: {
         type: "object",
         properties: {
-          name: { type: "string", description: `Its path, like "assistant/${INBOX}/Create order".` },
+          name: { type: "string", description: `Its path, like "${own ? `assistant/${INBOX}` : "Orders"}/Create order".` },
           to: { type: "string", description: `Where to: ${where}.` },
           newName: { type: "string", description: "Rename it on the way." }
         },
@@ -44755,8 +44757,8 @@ function workspaceTools(editable) {
     },
     {
       name: "delete_request",
-      description: `Delete a request from ${yours}. The user can undo it in the app.`,
-      inputSchema: { type: "object", properties: { name: { type: "string", description: 'Its path, like "assistant/Orders/Create order".' } }, required: ["name"] }
+      description: `Delete a request from ${yours}. ${own ? "The user can undo it in the app." : "The person decides, and can undo it until Dispatch closes."}`,
+      inputSchema: { type: "object", properties: { name: { type: "string", description: `Its path, like "${ex("Orders/Create order")}".` } }, required: ["name"] }
     },
     {
       name: "set_variables",
@@ -44764,7 +44766,7 @@ function workspaceTools(editable) {
       inputSchema: {
         type: "object",
         properties: {
-          collection: { type: "string", description: 'The collection, like "assistant/Orders".' },
+          collection: { type: "string", description: `The collection, like "${ex("Orders")}".` },
           variables: { type: "object", additionalProperties: { type: "string" }, description: "Names and values to set." },
           remove: { type: "array", items: { type: "string" }, description: "Names to remove." }
         },
@@ -44776,12 +44778,13 @@ function workspaceTools(editable) {
       description: `Set the pre-request or tests script of a collection or folder in ${yours}; it runs for every request inside. For one request's own scripts use update_request.`,
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string", description: 'The collection or folder, like "assistant/Orders" or "assistant/Orders/Admin".' }, ...scriptFields("collection or folder") },
+        properties: { path: { type: "string", description: `The collection or folder, like "${ex("Orders")}" or "${ex("Orders/Admin")}".` }, ...scriptFields("collection or folder") },
         required: ["path"]
       }
     }
   ];
 }
+var variableShown = (v) => v.secret && v.value ? HIDDEN : hideInText(hide(v.key, v.value));
 function getRequestTool() {
   return {
     name: "get_request",
@@ -44794,7 +44797,7 @@ var hide = (name, v) => {
   const scheme = /^(Bearer|Basic|Digest|Token)\s+(?!\{\{)/i.exec(v);
   return scheme ? `${scheme[0]}${HIDDEN}` : HIDDEN;
 };
-var AUTH_SECRETS = /* @__PURE__ */ new Set(["password", "token", "value", "clientSecret", "accessToken", "secret", "accessKey", "secretKey"]);
+var AUTH_SECRETS = /* @__PURE__ */ new Set(["password", "token", "value", "clientSecret", "accessToken", "secret", "accessKey", "secretKey", "refreshToken", "sessionToken"]);
 var AUTH_FIELDS = {
   basic: ["username", "password"],
   digest: ["username", "password"],
@@ -44804,11 +44807,53 @@ var AUTH_FIELDS = {
   jwt: ["algorithm", "secret", "headerPrefix"],
   awsv4: ["accessKey", "secretKey", "region", "service"]
 };
-var JWT = /\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}/g;
 var AUTH_SCHEME = /\b((?:Bearer|Basic|Digest|Token)\s+)(?!\{\{)[A-Za-z0-9._~+/=-]{8,}/g;
-function hideInText(s) {
-  return s.replace(/(\/\/[^/\s:@{}]+:)(?!\{\{)([^@/\s]+)@/g, (_m, pre) => `${pre}${HIDDEN}@`).replace(JWT, HIDDEN).replace(AUTH_SCHEME, (_m, pre) => `${pre}${HIDDEN}`).replace(/("([^"\\]+)"\s*:\s*)"((?:[^"\\]|\\.)*)"/g, (m, pre, k, v) => v && !IS_VAR.test(v) && SECRET_NAME.test(k) ? `${pre}"${HIDDEN}"` : m).replace(/([?&;\s]|^)([\w.-]+)=([^&;?\s"'<>,]+)/g, (m, pre, k, v) => !IS_VAR.test(v) && SECRET_NAME.test(k) ? `${pre}${k}=${HIDDEN}` : m);
+function jwtSpans(s) {
+  const out = [];
+  for (const run of s.matchAll(/[\w.-]+/g)) {
+    const segs = run[0].split(".");
+    let at = run.index;
+    for (let i = 0; i + 2 < segs.length; i++) {
+      const seg = segs[i];
+      const p = segs[i + 1].length >= 5 && segs[i + 2].length >= 5 ? seg.search(/\beyJ/) : -1;
+      if (p >= 0 && seg.length - p - 3 >= 5) {
+        const end = at + seg.length + 1 + segs[i + 1].length + 1 + segs[i + 2].length;
+        out.push([at + p, end]);
+        at = end + 1;
+        i += 2;
+      } else at += seg.length + 1;
+    }
+  }
+  return out;
 }
+var spansOf = (re, part) => (s) => {
+  const out = [];
+  for (const m of s.matchAll(re)) {
+    const x = part(m);
+    if (x) out.push([m.index + x[0], m.index + x[0] + x[1]]);
+  }
+  return out;
+};
+var SECRET_PATTERNS = [
+  // user:password@host in URLs
+  spansOf(/(\/\/[^/\s:@{}]+:)(?!\{\{)([^@/\s]+)@/g, (m) => [m[1].length, m[2].length]),
+  jwtSpans,
+  spansOf(AUTH_SCHEME, (m) => [m[1].length, m[0].length - m[1].length]),
+  // "secret": "…"
+  spansOf(/("([^"\\]+)"\s*:\s*)"((?:[^"\\]|\\.)*)"/g, (m) => m[3] && !IS_VAR.test(m[3]) && SECRET_NAME.test(m[2]) ? [m[1].length + 1, m[3].length] : null),
+  // secret=…
+  spansOf(/([?&;\s]|^)([\w.-]+)=([^&;?\s"'<>,]+)/g, (m) => !IS_VAR.test(m[3]) && SECRET_NAME.test(m[2]) ? [m[1].length + m[2].length + 1, m[3].length] : null)
+];
+function hideSpans(s, spans) {
+  if (!spans.length) return s;
+  let out = "", at = 0;
+  for (const [a, b] of spans) {
+    out += s.slice(at, a) + HIDDEN;
+    at = b;
+  }
+  return out + s.slice(at);
+}
+var hideInText = (s) => SECRET_PATTERNS.reduce((t, find) => hideSpans(t, find(t)), s);
 var hasHidden = (...xs) => xs.some((x) => x !== void 0 && x !== null && JSON.stringify(x).includes(HIDDEN));
 var hasSecretText = (t) => hideInText(t) !== t;
 var headerHidden = (h) => hideInText(hide(h.key, h.value)) !== h.value;
@@ -44850,11 +44895,11 @@ ${hideInText(sc.post)}`);
   }
   if (r.docs.trim()) lines.push(`Docs:
 ${hideInText(r.docs)}`);
-  if (col?.variables.length) lines.push(`Collection \u201C${col.name}\u201D variables: ${col.variables.map((v) => `${v.key} = ${hide(v.key, v.value)}`).join(", ")}`);
+  if (col?.variables.length) lines.push(`Collection \u201C${col.name}\u201D variables: ${col.variables.map((v) => `${v.key} = ${variableShown(v)}`).join(", ")}`);
   if (r.handoff) {
     const h = r.handoff;
     lines.push(`Handed to you by the user (${new Date(h.at).toISOString().slice(0, 16).replace("T", " ")}) from \u201C${h.from}\u201D${h.note ? `, asking: ${hideInText(h.note)}` : ""}.`);
-    if (h.variables?.length) lines.push(`Its original collection\u2019s variables: ${h.variables.map((v) => `${v.key} = ${hide(v.key, v.value)}`).join(", ")} (given to a new collection you move it into).`);
+    if (h.variables?.length) lines.push(`Its original collection\u2019s variables: ${h.variables.map((v) => `${v.key} = ${variableShown(v)}`).join(", ")} (given to a new collection you move it into).`);
     if (/^\/\/ From the (collection|folder) “/m.test(r.scripts.pre + "\n" + r.scripts.post)) lines.push("Its scripts include the collection and folder scripts it ran with (each marked \u201C// From the \u2026\u201D): remove those parts if you file it back under that collection or folder, or they run twice.");
     lines.push("Review it, fix what needs fixing (update_request, set_variables), then file it with move_request.");
   }
@@ -44937,7 +44982,7 @@ async function workspaceCall(name, args, x) {
     return METHODS.includes(v) ? v : null;
   };
   const bodyOf = (args2, current) => {
-    if (args2.bodyType !== void 0 && !BODY_KINDS.includes(args2.bodyType)) return `Unknown bodyType \u201C${args2.bodyType}\u201D; use one of ${BODY_KINDS.join(", ")}.`;
+    if (args2.bodyType !== void 0 && !BODY_KINDS.includes(args2.bodyType)) return `Unknown bodyType; use one of ${BODY_KINDS.join(", ")}.`;
     const base = current ?? newRequest().body;
     if (args2.body === void 0 || args2.body === null) return args2.bodyType && current ? { ...base, kind: args2.bodyType } : base;
     const text = typeof args2.body === "string" ? args2.body : JSON.stringify(args2.body, null, 2);
@@ -44971,7 +45016,7 @@ async function workspaceCall(name, args, x) {
     if (!rname || !url) return ["Give the request a name and a URL.", true];
     if (hasHidden(url, args.headers, args.body, args.preRequestScript, args.testScript)) return [hiddenBack, true];
     const method = methodOf(args.method ?? "GET");
-    if (!method) return [`Unknown method \u201C${args.method}\u201D; use one of ${METHODS.join(", ")}.`, true];
+    if (!method) return [`Unknown method; use one of ${METHODS.join(", ")}.`, true];
     const at = placeAt(args.folder);
     if (typeof at === "string") return [at, true];
     if (siblingsOf(at.collection.id, at.folderId).some((r2) => r2.name === rname)) return [`That folder already has \u201C${rname}\u201D. Use update_request to change it, or pick another name.`, true];
@@ -45008,7 +45053,7 @@ async function workspaceCall(name, args, x) {
     }
     if (args.method !== void 0) {
       const m = methodOf(args.method);
-      if (!m) return [`Unknown method \u201C${args.method}\u201D; use one of ${METHODS.join(", ")}.`, true];
+      if (!m) return [`Unknown method; use one of ${METHODS.join(", ")}.`, true];
       next.method = m;
       changed.push("method");
     }
@@ -45126,7 +45171,7 @@ async function workspaceCall(name, args, x) {
     const c2 = (assistant ? assistantCols() : userCols()).find((y) => y.name === segs[0]);
     if (!c2) {
       const theirs = x.allCollections.some((y) => y.name === segs[0] && !writable.has(y.id));
-      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : `No collection \u201C${String(args.collection)}\u201D you can change. Use list_requests.`, true];
+      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : "No collection by that name that you can change. Use list_requests.", true];
     }
     const set2 = args.variables && typeof args.variables === "object" && !Array.isArray(args.variables) ? Object.entries(args.variables).map(([k, v]) => [k, String(v)]) : [];
     const drop = Array.isArray(args.remove) ? args.remove.map(String) : [];
@@ -45144,13 +45189,13 @@ async function workspaceCall(name, args, x) {
     const c2 = (assistant ? assistantCols() : userCols()).find((y) => y.name === segs[0]);
     if (!c2) {
       const theirs = x.allCollections.some((y) => y.name === segs[0] && !writable.has(y.id));
-      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : `No collection \u201C${segs[0]}\u201D you can change. Use list_requests.`, true];
+      return [theirs ? `\u201C${segs[0]}\u201D is the user\u2019s collection, which you can\u2019t change.` : "No collection by that name that you can change. Use list_requests.", true];
     }
     let folder;
     let parent = null;
     for (const seg of segs.slice(1)) {
       folder = x.folders.find((y) => y.collectionId === c2.id && y.parentId === parent && y.name === seg);
-      if (!folder) return [`No folder \u201C${seg}\u201D in ${String(args.path)}.`, true];
+      if (!folder) return ["There is no folder at that path.", true];
       parent = folder.id;
     }
     if (hasHidden(args.preRequestScript, args.testScript)) return [hiddenBack, true];
@@ -45215,12 +45260,86 @@ function logTools(envNames) {
 var Redactor = class {
   values;
   constructor(values) {
-    this.values = [...new Set([...values].map((v) => v.trim()).filter((v) => v.length >= 6 && !IS_VAR2.test(v)))].sort((a, b) => b.length - a.length);
+    const plain2 = [...values].map((v) => v.trim()).filter((v) => v.length >= 6 && !IS_VAR2.test(v));
+    this.values = [...new Set(plain2.flatMap((v) => [v, JSON.stringify(v).slice(1, -1), urlText(v), urlText(v).replace(/%20/g, "+")]))].sort((a, b) => b.length - a.length);
   }
   text(s) {
-    let out = hideInText(s);
+    return this.known(hideInText(s));
+  }
+  /** Only the known values hidden, wherever they appear. */
+  known(s) {
+    let out = s;
     for (const v of this.values) if (out.includes(v)) out = out.split(v).join(HIDDEN);
     return out;
+  }
+  /** Every place a known value is, overlapping ones too. */
+  knownSpans(s) {
+    const out = [];
+    for (const v of this.values) for (let i = s.indexOf(v); i >= 0; i = s.indexOf(v, i + 1)) {
+      const last = out[out.length - 1];
+      if (last && last[0] <= i && i <= last[1]) last[1] = Math.max(last[1], i + v.length);
+      else out.push([i, i + v.length]);
+    }
+    return out;
+  }
+  /**
+   * For the built-in assistant: patterns and known values found in the same original text and all hidden, so nothing
+   * that text() or known() hides stays. Hiding one after the other lets the first take away what the second looks for
+   * (`Bearer` as a known value, or a password with a comma in it). Known limit: a known value in another form, such as
+   * base64 (outside an auth scheme) or HTML-escaped, isn't found.
+   */
+  clean(s) {
+    let hidden = [];
+    for (const find of [...SECRET_PATTERNS, (t) => this.knownSpans(t)]) {
+      const now = hideSpans(s, hidden);
+      hidden = union([...hidden, ...backTo(find(now), hidden)]);
+    }
+    return hideSpans(s, union([...hidden, ...this.knownSpans(s)]));
+  }
+  /** clean() for a named value (a variable, header or field); the name as it really is decides. */
+  named(k, v) {
+    return this.clean(hide(SENSITIVE_HEADER.test(k) ? "authorization" : k, v));
+  }
+  /** A header's value as an assistant may see it. */
+  header(k, v) {
+    return SENSITIVE_HEADER.test(k) ? hide("authorization", v) : this.text(hide(k, v));
+  }
+};
+function union(spans) {
+  const out = [];
+  for (const [a, b] of spans.sort((x, y) => x[0] - y[0] || x[1] - y[1])) {
+    const last = out[out.length - 1];
+    if (last && a < last[1]) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+function backTo(spans, hidden) {
+  let shift = 0;
+  const marks = hidden.map(([a, b]) => {
+    const from = a + shift;
+    shift += HIDDEN.length - (b - a);
+    return { from, to: from + HIDDEN.length, a, b };
+  });
+  const before = (p, at) => {
+    let lo = 0, hi = marks.length;
+    while (lo < hi) {
+      const mid = lo + hi >> 1;
+      if (marks[mid].from < p || at && marks[mid].from === p) lo = mid + 1;
+      else hi = mid;
+    }
+    return marks[lo - 1];
+  };
+  return spans.map(([x, y]) => {
+    const m = before(x, true), n = before(y, false);
+    return [!m ? x : x < m.to ? m.a : m.b + (x - m.to), !n ? y : y <= n.to ? n.b : n.b + (y - n.to)];
+  });
+}
+var urlText = (v) => {
+  try {
+    return encodeURIComponent(v);
+  } catch {
+    return v;
   }
 };
 function knownSecrets(x) {
@@ -45297,10 +45416,10 @@ function logCall(name, args, x) {
     const id = String(args.id ?? "").trim();
     if (!id) return ["Give the id from list_history.", true];
     const hits = visible().filter((h2) => h2.id.startsWith(id));
-    if (!hits.length) return [`No send \u201C${id}\u201D in the open workspace\u2019s history. Use list_history.`, true];
+    if (!hits.length) return ["No send with that id in the open workspace\u2019s history. Use list_history.", true];
     if (hits.length > 1) return [`\u201C${id}\u201D matches ${hits.length} sends; give more of the id.`, true];
     const h = hits[0];
-    const hdr = (k, v) => `  ${k}: ${SENSITIVE_HEADER.test(k) ? hide("authorization", v) : R(hide(k, v))}`;
+    const hdr = (k, v) => `  ${k}: ${x.redact.header(k, v)}`;
     const lines = [
       `\u201C${h.request.name}\u201D sent ${time(h.at)} UTC`,
       `${h.sent.method} ${R(h.sent.url)}`,
@@ -45308,7 +45427,7 @@ function logCall(name, args, x) {
 ${h.sent.headers.map(([k, v]) => hdr(k, v)).join("\n")}` : "Request headers: none"
     ];
     if (h.sent.body) lines.push(`Request body:
-${R(cut(h.sent.body))}`);
+${cut(R(h.sent.body))}`);
     if (h.sent.unresolved.length) lines.push(`Unresolved variables: ${h.sent.unresolved.map((v) => `{{${v}}}`).join(", ")}`);
     if (h.error) lines.push(`Error: ${R(h.error)}`);
     if (h.response) {
@@ -45317,7 +45436,7 @@ ${R(cut(h.sent.body))}`);
       lines.push(r.headers.length ? `Response headers:
 ${r.headers.map(([k, v]) => hdr(k, v)).join("\n")}` : "Response headers: none");
       lines.push(r.binary ? `Response body: binary, ${r.size} bytes` : `Response body:
-${R(cut(r.body))}`);
+${cut(R(r.body))}`);
     }
     if (h.tests?.length) lines.push(`Tests:
 ${h.tests.map((t) => `  ${t.passed ? "\u2713" : "\u2717"} ${t.name}${t.error ? ` \u2014 ${R(t.error)}` : ""}`).join("\n")}`);
@@ -45326,7 +45445,7 @@ ${h.tests.map((t) => `  ${t.passed ? "\u2713" : "\u2717"} ${t.name}${t.error ? `
   if (name === "get_environment") {
     const names = x.environments.map((e2) => `${e2.name}${e2.id === x.environment?.id ? " (active)" : ""}`);
     const e = args.name ? x.environments.find((y) => y.name === String(args.name)) : x.environment;
-    if (!e) return [args.name ? `No environment \u201C${args.name}\u201D. Environments: ${names.join(", ") || "none"}.` : `No environment is active. Environments: ${names.join(", ") || "none"}.`, !!args.name];
+    if (!e) return [args.name ? `No environment by that name. Environments: ${names.join(", ") || "none"}.` : `No environment is active. Environments: ${names.join(", ") || "none"}.`, !!args.name];
     const vars = e.variables.filter((v) => v.key.trim());
     const show = (v) => v.secret ? HIDDEN : R(hide(v.key, v.value));
     return [[
@@ -45380,11 +45499,7 @@ function mcpTools(flowNames = [], multi = false, ownWorkspace = false, editable,
     ...envNames ? logTools(envNames) : []
   ];
 }
-async function handleMcp(msg, o) {
-  const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
-  const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id, error: { code, message } });
-  const text = (t, isError = false) => reply({ content: [{ type: "text", text: t }], ...isError ? { isError: true } : {} });
-  if (msg.id === void 0) return null;
+function finder(o) {
   const cols = o.allCollections ? o.ws.collections : o.ws.collections.slice(0, 1);
   const multi = !!o.allCollections;
   const col = cols[0];
@@ -45399,9 +45514,28 @@ async function handleMcp(msg, o) {
     const exact = all.filter((x) => pathOf2(x) === want);
     if (exact.length > 1) return { error: `\u201C${want}\u201D names a request in your own workspace and one in the user\u2019s collection \u201Cassistant\u201D; ask the user to rename one of them.` };
     const it = exact[0] ?? (named.length === 1 || !multi ? named[0] : void 0);
-    if (!it) return { error: named.length > 1 ? `Several requests are named \u201C${want}\u201D: ${named.map(pathOf2).join(", ")}. Use the full path.` : `No request named \u201C${want}\u201D. Use list_requests.` };
+    if (!it) return { error: named.length > 1 ? `Several requests are named \u201C${want}\u201D: ${named.map(pathOf2).join(", ")}. Use the full path.` : "No request by that name or path. Use list_requests." };
     return { it, path: pathOf2(it) };
   };
+  return { cols, multi, col, own, items, pathOf: pathOf2, colOf, lookup };
+}
+async function handleMcp(msg, o) {
+  const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
+  const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id, error: { code, message } });
+  const text = (t, isError = false) => reply({ content: [{ type: "text", text: t }], ...isError ? { isError: true } : {} });
+  if (msg.id === void 0) return null;
+  const { cols, multi, col, own, items, pathOf: pathOf2, colOf, lookup } = finder(o);
+  const redactor = (fresh = {}) => new Redactor([
+    ...knownSecrets({
+      environments: [...o.ws.environments, ...o.environment ? [o.environment] : []],
+      globals: [...o.globals, ...(fresh.vars ?? []).flatMap((v) => v ?? [])],
+      collections: [...o.ws.collections, ...own],
+      folders: o.ws.folders,
+      requests: o.ws.requests,
+      extra: [o.settings.mcpHostToken]
+    }),
+    ...Object.entries(fresh.auth ?? {}).flatMap(([k, v]) => typeof v === "string" && AUTH_SECRETS.has(k) ? [v] : [])
+  ]);
   const canFlow = !!(o.engine || o.hooks?.runFlow);
   const editable = multi ? o.workspace?.editable?.name : void 0;
   let handedList = null;
@@ -45443,17 +45577,19 @@ async function handleMcp(msg, o) {
         const ctx = { collection: colOf(it), folders: o.ws.folders, environment: o.environment, globals: o.globals, locals };
         const x = await execute(it.request, ctx, o.transport, sendOptions(it.request, o.settings), o.pipeline);
         await o.hooks?.afterSend?.(x, ctx, it.request);
-        if (x.error && !x.response) return text(`Not sent: ${hideInText(x.error)}`, true);
+        const R = redactor({ vars: [x.changes.environment, x.changes.collection, x.changes.globals], auth: x.authUpdate?.patch });
+        if (x.error && !x.response) return text(`Not sent: ${R.text(x.error)}`, true);
         const r = x.response;
-        const body = r.binary ? `(binary, ${r.size} bytes)` : r.body.length > BODY_LIMIT2 ? `${r.body.slice(0, BODY_LIMIT2)}
-\u2026 (cut at ${BODY_LIMIT2} characters)` : r.body;
+        const full = r.binary ? `(binary, ${r.size} bytes)` : R.text(r.body);
+        const body = full.length > BODY_LIMIT2 ? `${full.slice(0, BODY_LIMIT2)}
+\u2026 (cut at ${BODY_LIMIT2} characters)` : full;
         const tests = x.tests.length ? `
 
 Tests:
-${x.tests.map((t) => `${t.passed ? "\u2713" : "\u2717"} ${t.name}${t.error ? ` \u2014 ${t.error}` : ""}`).join("\n")}` : "";
-        return text(`${x.sent.method} ${hideInText(x.sent.url)}
+${x.tests.map((t) => `${t.passed ? "\u2713" : "\u2717"} ${R.text(t.name)}${t.error ? ` \u2014 ${R.text(t.error)}` : ""}`).join("\n")}` : "";
+        return text(`${x.sent.method} ${R.text(x.sent.url)}
 \u2192 ${r.status} ${r.statusText} (${r.timeMs} ms)
-${r.headers.map(([k, v]) => `${k}: ${v}`).join("\n")}
+${r.headers.map(([k, v]) => `${k}: ${R.header(k, v)}`).join("\n")}
 
 ${body}${tests}`, r.status >= 400 || x.tests.some((t) => !t.passed));
       }
@@ -45472,9 +45608,10 @@ ${body}${tests}`, r.status >= 400 || x.tests.some((t) => !t.passed));
         const s = await runCollection({ items: list, iterations: data ? 0 : 1, data, delayMs: 0, stopOnFailure: false, environment: o.environment, collections: o.ws.collections, folders: o.ws.folders, globals: o.globals, settings: o.settings }, o.transport, o.pipeline);
         await o.hooks?.afterRun?.(s);
         const bad = s.results.filter(failed);
+        const R = redactor({ vars: [s.finalEnvironment, s.finalGlobals, ...Object.values(s.finalCollections)] });
         return text([
           `${s.requests} requests in ${s.iterations} iteration(s): ${s.testsPassed} tests passed, ${s.testsFailed} failed, ${s.failedRequests} errors, avg ${s.avgTimeMs} ms.`,
-          ...bad.slice(0, 20).map((r) => `\u2717 ${r.name}: ${r.error ? hideInText(r.error) : r.tests.filter((t) => !t.passed).map((t) => `${t.name}: ${t.error ?? "failed"}`).join("; ")}`)
+          ...bad.slice(0, 20).map((r) => `\u2717 ${r.name}: ${R.text(r.error || r.tests.filter((t) => !t.passed).map((t) => `${t.name}: ${t.error ?? "failed"}`).join("; "))}`)
         ].join("\n"), bad.length > 0);
       }
       if (name === "run_flow" && canFlow) {
@@ -45485,9 +45622,10 @@ ${body}${tests}`, r.status >= 400 || x.tests.some((t) => !t.passed));
           if (blocked.length) return text(`This flow sends ${blocked.map((b) => `${b.method} ${b.name}`).join(", ")}, which aren\u2019t allowed here.`, true);
         }
         const r = o.hooks?.runFlow ? await o.hooks.runFlow(f) : await runFlow(f, { collections: o.ws.collections, folders: o.ws.folders, requests: o.ws.requests, environment: o.environment, globals: o.globals, settings: o.settings }, o.transport, o.pipeline, o.engine);
+        const R = redactor({ vars: [r.environment, r.globals, ...Object.values(r.collections)] });
         return text([
-          `${r.ok ? "Passed" : `Failed: ${hideInText(String(r.error))}`} (${r.steps.length} steps, ${r.durationMs} ms)`,
-          ...r.steps.filter((x) => x.status !== "running").slice(0, 100).map((x) => `${x.status === "ok" ? "\u2713" : x.status === "failed" ? "\u2717" : "\xB7"} ${x.label}${x.status_code !== void 0 ? ` ${x.status_code}` : ""}${x.port ? ` \u2192 ${x.port}` : ""} ${hideInText(String(x.detail ?? ""))}`)
+          `${r.ok ? "Passed" : `Failed: ${R.text(String(r.error))}`} (${r.steps.length} steps, ${r.durationMs} ms)`,
+          ...r.steps.filter((x) => x.status !== "running").slice(0, 100).map((x) => `${x.status === "ok" ? "\u2713" : x.status === "failed" ? "\u2717" : "\xB7"} ${x.label}${x.status_code !== void 0 ? ` ${x.status_code}` : ""}${x.port ? ` \u2192 ${x.port}` : ""} ${R.text(String(x.detail ?? ""))}`)
         ].join("\n"), !r.ok);
       }
       if (LOG_TOOL_NAMES.includes(name) && o.logs) {
@@ -45539,7 +45677,7 @@ function serveMcp(o) {
 }
 
 // package.json
-var version2 = "0.2.0";
+var version2 = "0.3.0";
 
 // src/core/version.ts
 var VERSION = version2;
